@@ -1,0 +1,33 @@
+name: Jira Transition on Push
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  transition-jira:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Login to Jira
+        uses: atlassian/gajira-login@v3
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+
+      - name: Find Jira Issue Key from Commit
+        id: jira_keys
+        uses: atlassian/gajira-find-issue-key@v3
+        with:
+          from: commit-message
+
+      - name: Transition Issue to Ready for Test
+        if: steps.jira_keys.outputs.issue
+        uses: atlassian/gajira-transition@v3
+        with:
+          issue: ${{ steps.jira_keys.outputs.issue }}
+          transition: "Ready for Test" # Ensure this matches your exact Jira transition name
