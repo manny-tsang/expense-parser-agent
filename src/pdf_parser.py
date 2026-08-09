@@ -54,7 +54,7 @@ class HKCreditCardParser:
         current_trans["merchant"] = merchant
         self.transactions.append(current_trans)
 
-    def parse() -> pd.DataFrame:
+    def parse(self) -> pd.DataFrame:
         """Extracts transaction data from PDF according to standard specification rules."""
         columns = [
             "post_date",
