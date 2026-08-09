@@ -26,7 +26,7 @@ jobs:
           string: ${{ github.event.head_commit.message }}
 
       # 1. NEW -> IN DESIGN
-      - name: Transition: Defining
+      - name: "Transition: Defining"
         if: steps.jira_keys.outputs.issue && contains(github.event.head_commit.message, 'design')
         uses: atlassian/gajira-transition@v3
         with:
@@ -34,7 +34,7 @@ jobs:
           transition: "Defining"
 
       # 2. IN DESIGN -> READY FOR DEV
-      - name: Transition: Defined
+      - name: "Transition: Defined"
         if: steps.jira_keys.outputs.issue && contains(github.event.head_commit.message, 'defined')
         uses: atlassian/gajira-transition@v3
         with:
@@ -42,7 +42,7 @@ jobs:
           transition: "Defined"
 
       # 3. READY FOR DEV -> IN DEV
-      - name: Transition: In Sprint
+      - name: "Transition: In Sprint"
         if: steps.jira_keys.outputs.issue && (contains(github.event.head_commit.message, 'start') || contains(github.event.head_commit.message, 'indev'))
         uses: atlassian/gajira-transition@v3
         with:
@@ -50,7 +50,7 @@ jobs:
           transition: "In Sprint"
 
       # 4. IN DEV -> DEV COMPLETED
-      - name: Transition: Engineered
+      - name: "Transition: Engineered"
         if: steps.jira_keys.outputs.issue && (contains(github.event.head_commit.message, 'engineered') || contains(github.event.head_commit.message, 'devcomplete'))
         uses: atlassian/gajira-transition@v3
         with:
@@ -58,7 +58,7 @@ jobs:
           transition: "Engineered"
 
       # 5. DEV COMPLETED -> READY FOR TEST
-      - name: Transition: Assigned
+      - name: "Transition: Assigned"
         if: steps.jira_keys.outputs.issue && (contains(github.event.head_commit.message, 'readyfortest') || contains(github.event.head_commit.message, 'testready'))
         uses: atlassian/gajira-transition@v3
         with:
@@ -66,7 +66,7 @@ jobs:
           transition: "Assigned"
 
       # 6. READY FOR TEST -> IN TESTING
-      - name: Transition: Test Cases Defined
+      - name: "Transition: Test Cases Defined"
         if: steps.jira_keys.outputs.issue && contains(github.event.head_commit.message, 'testing')
         uses: atlassian/gajira-transition@v3
         with:
@@ -74,7 +74,7 @@ jobs:
           transition: "Test Cases Defined"
 
       # 7. IN TESTING -> TEST COMPLETED
-      - name: Transition: Test Cases Cleared
+      - name: "Transition: Test Cases Cleared"
         if: steps.jira_keys.outputs.issue && (contains(github.event.head_commit.message, 'cleared') || contains(github.event.head_commit.message, 'testcomplete'))
         uses: atlassian/gajira-transition@v3
         with:
@@ -82,7 +82,7 @@ jobs:
           transition: "Test Cases Cleared"
 
       # 8. TEST COMPLETED -> READY FOR BUILD
-      - name: Transition: Awaiting Build
+      - name: "Transition: Awaiting Build"
         if: steps.jira_keys.outputs.issue && (contains(github.event.head_commit.message, 'awaitingbuild') || contains(github.event.head_commit.message, 'readyforbuild'))
         uses: atlassian/gajira-transition@v3
         with:
@@ -90,7 +90,7 @@ jobs:
           transition: "Awaiting Build"
 
       # 9. READY FOR BUILD -> IN BUILD
-      - name: Transition: Build Assigned
+      - name: "Transition: Build Assigned"
         if: steps.jira_keys.outputs.issue && contains(github.event.head_commit.message, 'inbuild')
         uses: atlassian/gajira-transition@v3
         with:
@@ -98,7 +98,7 @@ jobs:
           transition: "Build Assigned"
 
       # 10. IN BUILD -> DONE
-      - name: Transition: Deployed
+      - name: "Transition: Deployed"
         if: steps.jira_keys.outputs.issue && (contains(github.event.head_commit.message, 'deployed') || contains(github.event.head_commit.message, 'done'))
         uses: atlassian/gajira-transition@v3
         with:
