@@ -216,3 +216,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Exclude files in the following directories
+data/*
+!data/.gitkeep
