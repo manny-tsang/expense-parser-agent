@@ -69,3 +69,75 @@ The resulting dataframe/CSV must contain the following exact header columns in t
 ## 7. Privacy & Anonymization Requirements
 - NO personal account details, full names, card numbers, or address details may be captured or exported.
 - Payment token numbers (`APPLE PAY-MOBILE:XXXX`) must be discarded during parsing.
+
+---
+
+## 8. Database Schema & Persistence Target
+
+- **Engine**: SQLite 3
+- **File Location**: `db/personal-expense-tracker.db`
+
+### 8.1 Entity-Relationship Structure
+
+### 8.1 Entity-Relationship Structure
+
+CREATE TABLE IF NOT EXISTS "category" (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category_name TEXT UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS "country" (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    country_name TEXT UNIQUE,
+    country_code TEXT UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS "currency" (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    currency_country_id INTEGER,
+    currency_code TEXT UNIQUE,
+    FOREIGN KEY(currency_country_id) REFERENCES "country"(id)
+);
+
+CREATE TABLE IF NOT EXISTS "transaction" (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    post_date DATE,
+    trans_date DATE,
+    merchant TEXT,
+    country_id INTEGER,
+    purchase_currency_id INTEGER,
+    txn_amount REAL,
+    hkd_amount REAL,
+    fx_rate NUMERIC,
+    category_id INTEGER,
+    FOREIGN KEY(country_id) REFERENCES "country"(id),
+    FOREIGN KEY(purchase_currency_id) REFERENCES "currency"(id),
+    FOREIGN KEY(category_id) REFERENCES "category"(id)
+);
+
+### 8.2 Exclusion Filter Rules
+Before inserting into the database, the parser MUST filter out and discard any transaction where the `merchant` string contains:
+- `IFS PAYMENT`
+- `PAYMENT - THANK YOU`
+
+### 8.3 Auto-Categorisation Engine Rules
+During ingestion, the parser must evaluate the `merchant` string against the following dictionary rules to determine `category_id`:
+
+- **Automotive**: `MEEK AUTOMOTIVE`, `SHANNONS`, `SUPERCHEAP AUTO`, `AUTOMOTIVE`, `MECHANIC`
+- **Bank Fees**: `DCC FEE`, `FOREIGN TRANSACTION FEE`, `LATE FEE`, `INTEREST CHARGE`
+- **Dining & Cafes**: `24 YORK`, `BARE WITNESS`, `BAMBOO SUSHI`, `BY V BAR`, `CONCORDIA CLUB`, `CHARGRILL OLYMPICPARK`, `EL JANNAH`, `GYUKATSU KYOTO`, `HASHI SUSHI`, `HIN TEE CHOO`, `HOONSIKDANG`, `KFC`, `MESSIN`, `SIMPLE SIMONS GELATO`, `SQ *ANGUS MARRICKVILLE`, `SQ *BELLA BACIATA`, `SQ *GOOD FELLA`, `SQ *GUMPTION`, `SQ *HEADLANDS`, `SQ *KABUL SOCIAL`, `SQ *LAB RHODES`, `SQ *MAMUKI`, `SQ *THE BERLIN FOOD`, `SQ *YUMYUM`, `THE LUCKY PLACE`, `THE MAJOR HABERFIELD`, `THE LONDON HOTEL`, `UNCLE TETSU`, `GELATO`, `GYG`, `CAFE`, `RESTAURANT`, `COFFEE`, `BAKERY`, `PATISSERIE`, `MCDONALD`
+- **Fuel**: `BP `, `BP CONNECT`, `SHELL`, `AMPOL`, `7-ELEVEN`, `UNITED PETROLEUM`, `CALTEX`
+- **Groceries**: `WOOLWORTHS`, `COLES`, `ALDI`, `PETBARN`, `ZETCITI`, `SUPERMARKET`, `IGAMARKET`, `GROCER`
+- **Haircut**: `SQ *STUDIO NO. 4`, `BARBER`, `HAIR`, `SALON`
+- **Health & Fitness**: `ADRENALINE HQ`, `CHEMIST WAREHOUSE`, `EZI*DYNASTY`, `KAPNOR`, `GYM`, `PHARMACY`, `CHEMIST`, `HEALTH`, `FITNESS`
+- **Medical**: `SHIM SZE EIN`, `DOCTOR`, `CLINIC`, `DENTAL`, `MEDICAL`
+- **Shopping & Retail**: `AMAZON`, `AQUILA`, `KIEHLS`, `REBEL`, `UNIQLO`, `BUNNINGS`, `KMART`, `TARGET`, `APPLE`
+- **Subscriptions**: `CANVA`, `NETFLIX`, `PDF.NET`, `SPOTIFY`, `APPLE.COM/BILL`, `YOUTUBE`, `PRIME`, `DISNEY`
+- **Transport**: `OPAL`, `PARKING`, `UBER`, `TAXI`, `TRANSPORT`, `TRANSIT`
+- **Utilities**: `TELSTRA`, `OPTUS`, `ENERGY`, `WATER`, `AANET`, `AGL`, `ORIGIN`
+- **Fallback**: Any unmatched merchant must be assigned to `Uncategorised`.
+
+### 8.3 Foreign Key Resolution Logic
+1. For `category_id`: Query `category` table for `category_name`. If not found, insert and retrieve new `id`.
+2. For `purchase_currency_id`: Query `currency` table for `currency_code` (e.g., `AUD`). If not found, insert and retrieve new `id`.
+3. For `country_id`: Query `country` table for `country_code` (e.g., `AUS`). If not found, insert and retrieve new `id`. If null/empty, store `NULL`.
