@@ -25,6 +25,32 @@ jobs:
         with:
           string: ${{ github.event.head_commit.message }}
 
+      # =========================================================================
+      # EPIC TRANSITIONS
+      # =========================================================================
+
+      # EPIC: NEW -> IN PROGRESS
+      - name: "Epic Transition: Implementing"
+        if: steps.jira_keys.outputs.issue && contains(github.event.head_commit.message, 'implementing')
+        uses: atlassian/gajira-transition@v3
+        with:
+          issue: ${{ steps.jira_keys.outputs.issue }}
+          transition: "Implementing"
+          comment: "Automated Epic Transition via GitHub Actions:\n\n${{ github.event.head_commit.message }}"
+
+      # EPIC: IN PROGRESS -> DONE
+      - name: "Epic Transition: Epic Completed"
+        if: steps.jira_keys.outputs.issue && (contains(github.event.head_commit.message, 'epiccompleted') || contains(github.event.head_commit.message, 'epicdone'))
+        uses: atlassian/gajira-transition@v3
+        with:
+          issue: ${{ steps.jira_keys.outputs.issue }}
+          transition: "Epic Completed"
+          comment: "Automated Epic Transition via GitHub Actions:\n\n${{ github.event.head_commit.message }}"
+
+      # =========================================================================
+      # STORY TRANSITIONS
+      # =========================================================================
+
       # 1. NEW -> IN DESIGN
       - name: "Transition: Defining"
         if: steps.jira_keys.outputs.issue && contains(github.event.head_commit.message, 'design')
