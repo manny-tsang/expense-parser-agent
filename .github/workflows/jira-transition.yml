@@ -50,12 +50,12 @@ jobs:
       # =========================================================================
 
       # 1. NEW -> IN DESIGN
-      - name: "Transition: Defining"
+      - name: "Transition: Define"
         if: steps.jira_keys.outputs.issue && contains(github.event.head_commit.message, 'design')
         uses: atlassian/gajira-transition@v3
         with:
           issue: ${{ steps.jira_keys.outputs.issue }}
-          transition: "Defining"
+          transition: "Define"
 
       # 2. IN DESIGN -> READY FOR DEV
       - name: "Transition: Defined"
