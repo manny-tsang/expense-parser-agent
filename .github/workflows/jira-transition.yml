@@ -30,22 +30,20 @@ jobs:
       # =========================================================================
 
       # EPIC: NEW -> IN PROGRESS
-      - name: "Epic Transition: Implementing"
+      - name: "Epic Transition: In Progress"
         if: steps.jira_keys.outputs.issue && contains(github.event.head_commit.message, 'implementing')
         uses: atlassian/gajira-transition@v3
         with:
           issue: ${{ steps.jira_keys.outputs.issue }}
-          transition: "Implementing"
-          comment: "Automated Epic Transition via GitHub Actions:\n\n${{ github.event.head_commit.message }}"
+          transition: "In Progress"
 
       # EPIC: IN PROGRESS -> DONE
-      - name: "Epic Transition: Epic Completed"
+      - name: "Epic Transition: Done"
         if: steps.jira_keys.outputs.issue && (contains(github.event.head_commit.message, 'epiccompleted') || contains(github.event.head_commit.message, 'epicdone'))
         uses: atlassian/gajira-transition@v3
         with:
           issue: ${{ steps.jira_keys.outputs.issue }}
-          transition: "Epic Completed"
-          comment: "Automated Epic Transition via GitHub Actions:\n\n${{ github.event.head_commit.message }}"
+          transition: "Done"
 
       # =========================================================================
       # STORY TRANSITIONS
@@ -58,7 +56,6 @@ jobs:
         with:
           issue: ${{ steps.jira_keys.outputs.issue }}
           transition: "Defining"
-          comment: "Automated Transition via GitHub Actions:\n\n${{ github.event.head_commit.message }}"
 
       # 2. IN DESIGN -> READY FOR DEV
       - name: "Transition: Defined"
@@ -67,7 +64,6 @@ jobs:
         with:
           issue: ${{ steps.jira_keys.outputs.issue }}
           transition: "Defined"
-          comment: "Automated Transition via GitHub Actions:\n\n${{ github.event.head_commit.message }}"
 
       # 3. READY FOR DEV -> IN DEV
       - name: "Transition: In Sprint"
@@ -76,7 +72,6 @@ jobs:
         with:
           issue: ${{ steps.jira_keys.outputs.issue }}
           transition: "In Sprint"
-          comment: "Automated Transition via GitHub Actions:\n\n${{ github.event.head_commit.message }}"
 
       # 4. IN DEV -> DEV COMPLETED
       - name: "Transition: Engineered"
@@ -85,7 +80,6 @@ jobs:
         with:
           issue: ${{ steps.jira_keys.outputs.issue }}
           transition: "Engineered"
-          comment: "Automated Transition via GitHub Actions:\n\n${{ github.event.head_commit.message }}"
 
       # 5. DEV COMPLETED -> READY FOR TEST
       - name: "Transition: Assigned"
@@ -94,7 +88,6 @@ jobs:
         with:
           issue: ${{ steps.jira_keys.outputs.issue }}
           transition: "Assigned"
-          comment: "Automated Transition via GitHub Actions:\n\n${{ github.event.head_commit.message }}"
 
       # 6. READY FOR TEST -> IN TESTING
       - name: "Transition: Test Cases Defined"
@@ -103,7 +96,6 @@ jobs:
         with:
           issue: ${{ steps.jira_keys.outputs.issue }}
           transition: "Test Cases Defined"
-          comment: "Automated Transition via GitHub Actions:\n\n${{ github.event.head_commit.message }}"
 
       # 7. IN TESTING -> TEST COMPLETED
       - name: "Transition: Test Cases Cleared"
@@ -112,7 +104,6 @@ jobs:
         with:
           issue: ${{ steps.jira_keys.outputs.issue }}
           transition: "Test Cases Cleared"
-          comment: "Automated Transition via GitHub Actions:\n\n${{ github.event.head_commit.message }}"
 
       # 8. TEST COMPLETED -> READY FOR BUILD
       - name: "Transition: Awaiting Build"
@@ -121,7 +112,6 @@ jobs:
         with:
           issue: ${{ steps.jira_keys.outputs.issue }}
           transition: "Awaiting Build"
-          comment: "Automated Transition via GitHub Actions:\n\n${{ github.event.head_commit.message }}"
 
       # 9. READY FOR BUILD -> IN BUILD
       - name: "Transition: Build Assigned"
@@ -130,7 +120,6 @@ jobs:
         with:
           issue: ${{ steps.jira_keys.outputs.issue }}
           transition: "Build Assigned"
-          comment: "Automated Transition via GitHub Actions:\n\n${{ github.event.head_commit.message }}"
 
       # 10. IN BUILD -> DONE
       - name: "Transition: Deployed"
@@ -139,4 +128,3 @@ jobs:
         with:
           issue: ${{ steps.jira_keys.outputs.issue }}
           transition: "Deployed"
-          comment: "Automated Transition via GitHub Actions:\n\n${{ github.event.head_commit.message }}"
