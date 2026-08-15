@@ -7,8 +7,11 @@ Build a functional, intuitive, and responsive Streamlit web application (`src/ap
 - **Language**: Python 3.x
 - **UI Framework**: Streamlit (`streamlit`)
 - **Data & Processing**: `pandas`, `sqlite3`
-- **Core Engine**: `src/pdf_parser.py`
+- **Core Engine**: `src/pdf_parser.py` (`parse_statement()`)
 - **Database Target**: `db/personal-expense-tracker.db`
+- **Database Ownership Contract**: 
+  - `src/app.py` MUST NOT execute `CREATE TABLE` queries or manage database schemas.
+  - Database table creation and normalized schema management are exclusively owned by `src/pdf_parser.py`.
 
 ---
 
@@ -23,17 +26,36 @@ Build a functional, intuitive, and responsive Streamlit web application (`src/ap
 - **Ingestion Trigger**: A prominent "Process Statement" action button (`st.button`).
 - **Processing Status**: Display a visual spinner during processing (`st.spinner`) and toast alerts for success/failure.
 
-### 3.3 Main Data Area
-1. **Summary Metrics Cards (`st.metric`)**:
+### 3.3 Main Data Area & Database Alignment
+1. **Schema & Query Strategy**:
+   - `src/app.py` queries transactions by joining normalized relational tables created by `src/pdf_parser.py`:
+     ```sql
+     SELECT 
+         t.trans_date, 
+         t.merchant, 
+         c.category_name, 
+         t.txn_amount, 
+         curr.currency_code AS purchase_currency, 
+         t.hkd_amount, 
+         t.fx_rate
+     FROM "transaction" t
+     LEFT JOIN category c ON t.category_id = c.id
+     LEFT JOIN currency curr ON t.purchase_currency_id = curr.id
+     ```
+   - Categories dropdown is queried directly from `SELECT category_name FROM category ORDER BY category_name`.
+
+2. **Summary Metrics Cards (`st.metric`)**:
    - Total Spend (Formatted in AUD currency: `$X,XXX.XX`).
    - Total Transaction Count.
    - Top Spending Category.
-2. **Real-Time Transaction Grid (`st.dataframe`)**:
+
+3. **Real-Time Transaction Grid (`st.dataframe`)**:
    - Displays parsed transactions queried directly from `personal-expense-tracker.db`.
    - Columns: `trans_date`, `merchant`, `category_name`, `txn_amount`, `purchase_currency`, `hkd_amount`, `fx_rate`.
-3. **Filtering Controls**:
+
+4. **Filtering Controls**:
    - Category Filter: Dropdown selector (`st.selectbox`) populated dynamically from the `category` table.
-   - Search Bar: Text input (`st.text_input`) filtering the `merchant` column.
+   - Search Bar: Text input (`st.text_input`) filtering the `merchant` column using SQL `LIKE`.
 
 ---
 

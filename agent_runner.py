@@ -1,30 +1,39 @@
+import argparse
 import os
+import sys
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from github import Github, Auth
 
 # Load environment variables from root .env
-load_dotenv()
+load_dotenv(override=True)
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GITHUB_PAT = os.getenv("GITHUB_PAT")
-GITHUB_REPO = os.getenv("GITHUB_REPO")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+GITHUB_PAT = os.environ.get("GITHUB_PAT", "").strip()
+GITHUB_REPO = os.environ.get("GITHUB_REPO", "").strip()
 
-def run_agent():
-    print("🤖 Agent initialized. Reading specification...")
-    
-    # 1. Read spec file locally (Zero financial data exposure)
-    spec_path = "docs/specs/pdf_parser_spec.md"
+if not GEMINI_API_KEY:
+    raise ValueError("GEMINI_API_KEY is missing or empty in your .env file!")
+
+# Explicitly ensure GEMINI_API_KEY is set in environment for Google GenAI SDK
+os.environ["GEMINI_API_KEY"] = GEMINI_API_KEY
+
+
+def run_agent(spec_path: str, output_path: str, commit_message: str):
+    print(f"🤖 Agent initialized using spec: '{spec_path}'...")
+
     if not os.path.exists(spec_path):
         raise FileNotFoundError(f"Could not find specification file at {spec_path}")
-        
+
     with open(spec_path, "r", encoding="utf-8") as f:
         spec_content = f.read()
 
-    # 2. Build explicit, air-gapped prompt
+    # Dynamic role guidance based on target file extension
+    role_desc = "expert Streamlit UI & Python engineer" if output_path.endswith("app.py") else "expert Python software engineer"
+
     prompt = f"""
-You are an expert Python software engineer building a modular PDF parser.
+You are an {role_desc} building software from formal specs.
 
 STRICT INSTRUCTIONS:
 - Implement the Python module strictly adhering to the specification below.
@@ -32,16 +41,16 @@ STRICT INSTRUCTIONS:
 - Do NOT include additional conversational text, explanations, or commentary.
 - Ensure all instance methods inside classes explicitly declare `self` as their first parameter.
 - If a class method does not read or modify instance state, decorate it with `@staticmethod`.
-- Ensure the code handles errors gracefully and uses standard Python typing hints.
+- Ensure the code handles errors gracefully, uses standard Python typing hints, and follows PEP 8.
+- If generating Streamlit code, ensure proper file upload handling, temporary file cleanup, and state management.
 
 SPECIFICATION:
 {spec_content}
 """
 
-    # 3. Call Gemini API using google-genai SDK
     print("🧠 Sending spec to Gemini API for code generation...")
-    client = genai.Client(api_key=GEMINI_API_KEY)
-    
+    client = genai.Client()
+
     response = client.models.generate_content(
         model="gemini-3.6-flash",
         contents=prompt,
@@ -60,30 +69,53 @@ SPECIFICATION:
     else:
         clean_code = generated_code.strip()
 
-    # 4. Save generated code locally
-    output_path = "src/pdf_parser.py"
-    os.makedirs("src", exist_ok=True)
-    
+    # Save generated code locally
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(clean_code)
-        
+
     print(f"✅ Generated code successfully written to {output_path}")
 
-    # 5. Push generated code to GitHub
+    # Push generated code to GitHub (if credentials provided)
     if GITHUB_PAT and GITHUB_REPO:
         print("🚀 Committing and pushing generated code to GitHub...")
         g = Github(auth=Auth.Token(GITHUB_PAT))
         repo = g.get_repo(GITHUB_REPO)
-        
-        commit_message = "PET-5: Generate initial PDF parser module from specification"
-        
+
         try:
-            contents = repo.get_contents("src/pdf_parser.py", ref="main")
+            contents = repo.get_contents(output_path, ref="main")
             repo.update_file(contents.path, commit_message, clean_code, contents.sha, branch="main")
-            print("🎉 Updated src/pdf_parser.py on GitHub main branch.")
+            print(f"🎉 Updated {output_path} on GitHub main branch.")
         except Exception:
-            repo.create_file("src/pdf_parser.py", commit_message, clean_code, branch="main")
-            print("🎉 Created src/pdf_parser.py on GitHub main branch.")
+            repo.create_file(output_path, commit_message, clean_code, branch="main")
+            print(f"🎉 Created {output_path} on GitHub main branch.")
+
+
+def main(args=None):
+    parser = argparse.ArgumentParser(description="Spec-Driven Code Generation Agent Engine")
+    
+    parser.add_argument(
+        "--spec",
+        required=True,
+        help="Path to input markdown specification file (e.g., docs/specs/ui_ingestion_spec.md)"
+    )
+    parser.add_argument(
+        "--target",
+        required=True,
+        help="Target path where generated Python file will be saved (e.g., src/app.py)"
+    )
+    parser.add_argument(
+        "--commit-msg",
+        required=True,
+        help="Git commit message for automatic GitHub push (e.g., 'PET-10: Generate Streamlit UI')"
+    )
+
+    parsed_args = parser.parse_args(args)
+    run_agent(parsed_args.spec, parsed_args.target, parsed_args.commit_msg)
+
 
 if __name__ == "__main__":
-    run_agent()
+    main()
