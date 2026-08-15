@@ -1,8 +1,7 @@
-import os
 import sqlite3
 import tempfile
-import uuid
-from typing import Any, List, Optional, Tuple
+from pathlib import Path
+from typing import Any, Optional
 
 import pandas as pd
 import streamlit as st
@@ -13,40 +12,31 @@ except ImportError:
     try:
         from pdf_parser import parse_statement
     except ImportError:
-        parse_statement = None
+
+        def parse_statement(pdf_path: str) -> None:
+            raise NotImplementedError(
+                "The core parser module 'pdf_parser' is not available."
+            )
 
 
-class DatabaseManager:
-    """Manages read-only queries against the normalized SQLite database."""
+class ExpenseTrackerApp:
+    """Streamlit application manager for statement ingestion and viewing."""
 
     def __init__(self, db_path: str = "db/personal-expense-tracker.db") -> None:
-        self.db_path = db_path
+        """Initialize the application manager with database location.
 
-    def get_connection(self) -> sqlite3.Connection:
-        """Establishes and returns a database connection with Row factory."""
-        os.makedirs(os.path.dirname(os.path.abspath(self.db_path)), exist_ok=True)
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+        Args:
+            db_path: Path to the SQLite database file.
+        """
+        self.db_path: Path = Path(db_path)
 
-    def fetch_categories(self) -> List[str]:
-        """Fetches distinct category names ordered alphabetically."""
-        if not os.path.exists(self.db_path):
-            return []
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT category_name FROM category ORDER BY category_name")
-                rows = cursor.fetchall()
-                return [row["category_name"] for row in rows if row["category_name"]]
-        except (sqlite3.OperationalError, sqlite3.DatabaseError):
-            return []
+    def fetch_transactions(self) -> pd.DataFrame:
+        """Fetch raw transaction records directly from SQLite database.
 
-    def fetch_transactions(
-        self, category_filter: Optional[str] = None, search_term: Optional[str] = None
-    ) -> pd.DataFrame:
-        """Queries normalized transaction records with optional filters."""
-        default_cols = [
+        Returns:
+            pd.DataFrame: Queried transactions or empty DataFrame on failure.
+        """
+        columns = [
             "trans_date",
             "merchant",
             "category_name",
@@ -55,187 +45,122 @@ class DatabaseManager:
             "hkd_amount",
             "fx_rate",
         ]
-        if not os.path.exists(self.db_path):
-            return pd.DataFrame(columns=default_cols)
+
+        if not self.db_path.exists():
+            return pd.DataFrame(columns=columns)
 
         query = """
-            SELECT 
-                t.trans_date, 
-                t.merchant, 
-                c.category_name, 
-                t.txn_amount, 
-                curr.currency_code AS purchase_currency, 
-                t.hkd_amount, 
-                t.fx_rate
-            FROM "transaction" t
-            LEFT JOIN category c ON t.category_id = c.id
-            LEFT JOIN currency curr ON t.purchase_currency_id = curr.id
-            WHERE 1=1
+        SELECT 
+            t.trans_date, 
+            t.merchant, 
+            c.category_name, 
+            t.txn_amount, 
+            curr.currency_code AS purchase_currency, 
+            t.hkd_amount, 
+            t.fx_rate
+        FROM "transaction" t
+        LEFT JOIN category c ON t.category_id = c.id
+        LEFT JOIN currency curr ON t.purchase_currency_id = curr.id
+        ORDER BY t.trans_date DESC, t.id DESC
         """
-        params: List[Any] = []
-
-        if category_filter and category_filter != "All":
-            query += " AND c.category_name = ?"
-            params.append(category_filter)
-
-        if search_term and search_term.strip():
-            query += " AND t.merchant LIKE ?"
-            params.append(f"%{search_term.strip()}%")
-
-        query += " ORDER BY t.trans_date DESC"
 
         try:
-            with self.get_connection() as conn:
-                df = pd.read_sql_query(query, conn, params=params)
+            with sqlite3.connect(self.db_path) as conn:
+                df = pd.read_sql_query(query, conn)
                 return df
-        except (sqlite3.OperationalError, pd.errors.DatabaseError):
-            return pd.DataFrame(columns=default_cols)
-
-
-class DashboardMetrics:
-    """Computes summary metrics from transaction datasets."""
-
-    @staticmethod
-    def calculate_metrics(df: pd.DataFrame) -> Tuple[str, int, str]:
-        """Calculates total spend, transaction count, and top spending category."""
-        if df.empty:
-            return "$0.00", 0, "N/A"
-
-        amount_col = "txn_amount" if "txn_amount" in df.columns else None
-        if amount_col and not df[amount_col].dropna().empty:
-            total_spend = pd.to_numeric(df[amount_col], errors="coerce").fillna(0.0).sum()
-        else:
-            total_spend = 0.0
-
-        total_count = len(df)
-
-        top_category = "N/A"
-        if "category_name" in df.columns and not df["category_name"].dropna().empty:
-            valid_cats = df.dropna(subset=["category_name"])
-            if not valid_cats.empty:
-                if amount_col:
-                    grouped = valid_cats.groupby("category_name")[amount_col].sum()
-                else:
-                    grouped = valid_cats["category_name"].value_counts()
-                if not grouped.empty:
-                    top_category = str(grouped.idxmax())
-
-        formatted_spend = f"${total_spend:,.2f}"
-        return formatted_spend, total_count, top_category
-
-
-class StatementProcessor:
-    """Handles PDF file uploading, temporary file handling, and parser execution."""
-
-    @staticmethod
-    def process_pdf(uploaded_file: Any) -> Tuple[bool, str]:
-        """Saves uploaded PDF to a temporary file and triggers parse_statement."""
-        if parse_statement is None:
-            return False, "PDF Parser engine (`src/pdf_parser.py`) is missing or unavailable."
-
-        temp_dir = tempfile.gettempdir()
-        temp_path = os.path.join(temp_dir, f"temp_{uuid.uuid4().hex}_{uploaded_file.name}")
-
-        try:
-            with open(temp_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
-
-            parse_statement(temp_path)
-            return True, "Statement processed and ingested successfully!"
+        except (sqlite3.OperationalError, sqlite3.DatabaseError):
+            return pd.DataFrame(columns=columns)
         except Exception as e:
-            return False, f"Failed to process statement: {str(e)}"
+            st.error(f"Error querying database: {e}")
+            return pd.DataFrame(columns=columns)
+
+    def process_pdf(self, uploaded_file: Any) -> bool:
+        """Save uploaded PDF to temporary storage, trigger parser, and cleanup.
+
+        Args:
+            uploaded_file: Streamlit UploadedFile instance.
+
+        Returns:
+            bool: True if ingestion succeeded, False otherwise.
+        """
+        temp_path: Optional[Path] = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                tmp.write(uploaded_file.getbuffer())
+                temp_path = Path(tmp.name)
+
+            parse_statement(str(temp_path))
+            return True
+        except Exception as e:
+            st.error(f"Failed to process statement: {e}")
+            return False
         finally:
-            if os.path.exists(temp_path):
+            if temp_path and temp_path.exists():
                 try:
-                    os.remove(temp_path)
-                except OSError:
+                    temp_path.unlink()
+                except Exception:
                     pass
 
+    @staticmethod
+    def render_dashboard() -> None:
+        """Render placeholder Dashboard screen."""
+        st.title("Dashboard")
+        st.info("Dashboard view is currently under construction.")
 
-def main() -> None:
-    st.set_page_config(
-        page_title="Statement Ingestion & Operational Dashboard",
-        page_icon="💳",
-        layout="wide",
-    )
+    @staticmethod
+    def render_charts() -> None:
+        """Render placeholder Charts screen."""
+        st.title("Charts")
+        st.info("Charts view is currently under construction.")
 
-    st.title("💳 Statement Ingestion & Operational Dashboard")
-    st.markdown("Upload credit card statements, ingest transactions into SQLite, and monitor spending.")
+    def render_upload(self) -> None:
+        """Render the Statement Upload screen and Raw Transaction Grid."""
+        st.title("Upload")
+        st.markdown(
+            "Select PDF credit card statement to process into anonymised "
+            "transactions to be stored and used for budget planning."
+        )
 
-    db_manager = DatabaseManager()
+        uploaded_file = st.file_uploader("Select PDF Statement", type=["pdf"])
+        process_clicked = st.button("Process Statement", type="primary")
 
-    # Sidebar: Statement Ingestion
-    st.sidebar.header("Statement Ingestion")
-    uploaded_file = st.sidebar.file_uploader(
-        "Select PDF Statement",
-        type=["pdf"],
-        help="Upload downloadable credit card statements in PDF format.",
-    )
-
-    process_btn = st.sidebar.button("Process Statement", use_container_width=True, type="primary")
-
-    if process_btn:
-        if uploaded_file is None:
-            st.sidebar.warning("Please select a PDF file before clicking process.")
-        else:
-            with st.spinner("Processing PDF statement..."):
-                success, message = StatementProcessor.process_pdf(uploaded_file)
-            if success:
-                st.sidebar.success(message)
-                st.toast("Ingestion completed successfully!", icon="✅")
-                st.rerun()
+        if process_clicked:
+            if uploaded_file is None:
+                st.error("Please select a PDF statement file before processing.")
             else:
-                st.sidebar.error(message)
-                st.toast(f"Processing Error: {message}", icon="🚨")
+                with st.spinner("Processing statement..."):
+                    success = self.process_pdf(uploaded_file)
 
-    # Main Area: Filters
-    st.subheader("Filters & Search")
-    category_list = ["All"] + db_manager.fetch_categories()
+                if success:
+                    st.toast("Statement processed successfully!")
+                    st.success("Statement processed successfully!")
 
-    col_filter1, col_filter2 = st.columns([1, 2])
-    with col_filter1:
-        selected_category = st.selectbox("Category Filter", options=category_list, index=0)
-    with col_filter2:
-        search_merchant = st.text_input(
-            "Search Merchant",
-            placeholder="Type merchant name...",
+        st.divider()
+        df_transactions = self.fetch_transactions()
+        st.dataframe(df_transactions, use_container_width=True)
+
+    def run(self) -> None:
+        """Execute top-level Streamlit UI application and page routing."""
+        st.set_page_config(
+            page_title="Personal Expense Tracker",
+            layout="wide",
+            initial_sidebar_state="expanded",
         )
 
-    # Main Area: Query Data & Summary Metrics Cards
-    df_transactions = db_manager.fetch_transactions(
-        category_filter=selected_category, search_term=search_merchant
-    )
-
-    formatted_spend, total_count, top_category = DashboardMetrics.calculate_metrics(df_transactions)
-
-    st.subheader("Summary Metrics")
-    m1, m2, m3 = st.columns(3)
-    m1.metric(label="Total Spend", value=formatted_spend)
-    m2.metric(label="Total Transaction Count", value=str(total_count))
-    m3.metric(label="Top Spending Category", value=top_category)
-
-    st.divider()
-
-    # Main Area: Real-Time Transaction Grid
-    st.subheader("Transaction Records")
-    if not df_transactions.empty:
-        st.dataframe(
-            df_transactions,
-            use_container_width=True,
-            column_config={
-                "trans_date": st.column_config.DateColumn("Date", format="YYYY-MM-DD"),
-                "merchant": st.column_config.TextColumn("Merchant"),
-                "category_name": st.column_config.TextColumn("Category"),
-                "txn_amount": st.column_config.NumberColumn("Txn Amount", format="$%.2f"),
-                "purchase_currency": st.column_config.TextColumn("Currency"),
-                "hkd_amount": st.column_config.NumberColumn("HKD Amount", format="$%.2f"),
-                "fx_rate": st.column_config.NumberColumn("FX Rate", format="%.4f"),
-            },
-            hide_index=True,
+        page_selection = st.sidebar.radio(
+            "Navigation",
+            options=["Dashboard", "Upload", "Charts"],
+            index=1,
         )
-    else:
-        st.info("No transaction records found. Upload a statement to populate data.")
+
+        if page_selection == "Dashboard":
+            self.render_dashboard()
+        elif page_selection == "Upload":
+            self.render_upload()
+        elif page_selection == "Charts":
+            self.render_charts()
 
 
 if __name__ == "__main__":
-    main()
+    app = ExpenseTrackerApp()
+    app.run()
