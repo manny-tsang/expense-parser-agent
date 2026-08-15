@@ -1,43 +1,42 @@
 import os
 import re
 import sqlite3
+from datetime import datetime
 from typing import Optional, List, Dict, Any, Tuple
 import pandas as pd
 import pdfplumber
 
 
 class HKStatementParser:
-    MONTH_MAP: Dict[str, int] = {
-        'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4,
-        'MAY': 5, 'JUN': 6, 'JUL': 7, 'AUG': 8,
-        'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12
+    """Parser for Hong Kong Credit Card PDF Statements."""
+
+    MONTH_MAP = {
+        "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
+        "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12
     }
 
-    KNOWN_CURRENCIES = {
-        'AUD', 'USD', 'HKD', 'SGD', 'EUR', 'GBP', 'JPY', 'CAD', 'NZD',
-        'CNY', 'TWD', 'THB', 'KRW', 'MYR', 'PHP', 'INR', 'VND', 'IDR',
-        'CHF', 'SEK', 'NOK', 'DKK', 'SAR', 'AED', 'MOP'
+    CURRENCY_CODES = {
+        "AUD", "USD", "EUR", "GBP", "CAD", "SGD", "JPY", "NZD", "CNY", "HKD",
+        "THB", "KRW", "TWD", "MYR", "IDR", "PHP", "VND", "INR", "CHF"
     }
 
-    CATEGORIES: Dict[str, List[str]] = {
+    CATEGORIES_MAP = {
         "Automotive": ["MEEK AUTOMOTIVE", "SHANNONS", "SUPERCHEAP AUTO", "AUTOMOTIVE", "MECHANIC"],
         "Bank Fees": ["DCC FEE", "FOREIGN TRANSACTION FEE", "LATE FEE", "INTEREST CHARGE"],
         "Dining & Cafes": [
-            "24 YORK", "BARE WITNESS", "BAMBOO SUSHI", "BY V BAR", "CONCORDIA CLUB",
-            "CHARGRILL OLYMPICPARK", "EL JANNAH", "GYUKATSU KYOTO", "HASHI SUSHI",
-            "HIN TEE CHOO", "HOONSIKDANG", "KFC", "MESSIN", "SIMPLE SIMONS GELATO",
-            "SQ *ANGUS MARRICKVILLE", "SQ *BELLA BACIATA", "SQ *GOOD FELLA",
-            "SQ *GUMPTION", "SQ *HEADLANDS", "SQ *KABUL SOCIAL", "SQ *LAB RHODES",
-            "SQ *MAMUKI", "SQ *THE BERLIN FOOD", "SQ *YUMYUM", "THE LUCKY PLACE",
-            "THE MAJOR HABERFIELD", "THE LONDON HOTEL", "UNCLE TETSU", "GELATO",
-            "GYG", "CAFE", "RESTAURANT", "COFFEE", "BAKERY", "PATISSERIE", "MCDONALD"
+            "24 YORK", "BARE WITNESS", "BAMBOO SUSHI", "BY V BAR", "CONCORDIA CLUB", "CHARGRILL OLYMPICPARK",
+            "EL JANNAH", "GYUKATSU KYOTO", "HASHI SUSHI", "HIN TEE CHOO", "HOONSIKDANG", "KFC", "MESSIN",
+            "SIMPLE SIMONS GELATO", "SQ *ANGUS MARRICKVILLE", "SQ *BELLA BACIATA", "SQ *GOOD FELLA",
+            "SQ *GUMPTION", "SQ *HEADLANDS", "SQ *KABUL SOCIAL", "SQ *LAB RHODES", "SQ *MAMUKI",
+            "SQ *THE BERLIN FOOD", "SQ *YUMYUM", "THE LUCKY PLACE", "THE MAJOR HABERFIELD", "THE LONDON HOTEL",
+            "UNCLE TETSU", "GELATO", "GYG", "CAFE", "RESTAURANT", "COFFEE", "BAKERY", "PATISSERIE", "MCDONALD"
         ],
         "Fuel": ["BP ", "BP CONNECT", "SHELL", "AMPOL", "7-ELEVEN", "UNITED PETROLEUM", "CALTEX"],
         "Groceries": ["WOOLWORTHS", "COLES", "ALDI", "PETBARN", "ZETCITI", "SUPERMARKET", "IGAMARKET", "GROCER"],
         "Haircut": ["SQ *STUDIO NO. 4", "BARBER", "HAIR", "SALON"],
         "Health & Fitness": [
-            "ADRENALINE HQ", "CHEMIST WAREHOUSE", "EZI*DYNASTY", "KAPNOR",
-            "GYM", "PHARMACY", "CHEMIST", "HEALTH", "FITNESS"
+            "ADRENALINE HQ", "CHEMIST WAREHOUSE", "EZI*DYNASTY", "KAPNOR", "GYM", "PHARMACY",
+            "CHEMIST", "HEALTH", "FITNESS"
         ],
         "Medical": ["SHIM SZE EIN", "DOCTOR", "CLINIC", "DENTAL", "MEDICAL"],
         "Shopping & Retail": ["AMAZON", "AQUILA", "KIEHLS", "REBEL", "UNIQLO", "BUNNINGS", "KMART", "TARGET", "APPLE"],
@@ -46,355 +45,395 @@ class HKStatementParser:
         "Utilities": ["TELSTRA", "OPTUS", "ENERGY", "WATER", "AANET", "AGL", "ORIGIN"]
     }
 
-    def __init__(self, pdf_path: str):
-        self.pdf_path: str = pdf_path
-        self.statement_year: int = 2026
-        self.statement_month: int = 1
+    DB_PATH = os.path.join("db", "personal-expense-tracker.db")
 
-    @staticmethod
-    def _parse_date_token(token: str) -> Tuple[int, int]:
-        token_clean = re.sub(r'\s+', '', token).upper()
-        match = re.match(r'(\d{1,2})([A-Z]{3})', token_clean)
-        if match:
-            day = int(match.group(1))
-            month_str = match.group(2)
-            month = HKStatementParser.MONTH_MAP.get(month_str, 1)
-            return day, month
-        return 1, 1
+    def __init__(self) -> None:
+        pass
 
-    def _format_transaction_date(self, token: str) -> str:
-        day, month = self._parse_date_token(token)
-        if month > self.statement_month:
-            year = self.statement_year - 1
-        else:
-            year = self.statement_year
-        return f"{day:02d}-{month:02d}-{year}"
+    def process(self, pdf_path: str, output_csv_path: Optional[str] = None) -> pd.DataFrame:
+        """Main pipeline for parsing PDF statement, persisting to DB, and outputting DataFrame/CSV."""
+        filename = os.path.basename(pdf_path)
+        self._init_db_and_check_log(filename)
 
-    def _extract_statement_date(self, pdf: pdfplumber.PDF) -> None:
-        if not pdf.pages:
-            return
-        page1_text = pdf.pages[0].extract_text() or ""
-        lines = page1_text.split('\n')
-        for i, line in enumerate(lines):
-            if "Statement date" in line or "結單日" in line:
-                text_to_search = line + " " + (lines[i + 1] if i + 1 < len(lines) else "")
-                match = re.search(r'\b(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\b', text_to_search, re.IGNORECASE)
-                if match:
-                    _, month_str, year_str = match.groups()
-                    self.statement_year = int(year_str)
-                    self.statement_month = HKStatementParser.MONTH_MAP.get(month_str.upper(), 1)
+        raw_txns: List[Dict[str, Any]] = []
+
+        with pdfplumber.open(pdf_path) as pdf:
+            stmt_month, stmt_year = self._extract_statement_date(pdf)
+
+            pending_txn: Optional[Dict[str, Any]] = None
+            global_stop = False
+
+            for page_idx, page in enumerate(pdf.pages):
+                page_num = page_idx + 1
+
+                # Skip Page 2 completely
+                if page_num == 2:
+                    continue
+
+                if global_stop:
                     break
 
+                page_text = page.extract_text() or ""
+                lines = page_text.split("\n")
+
+                page1_active = False if page_num == 1 else True
+
+                for line in lines:
+                    line_str = line.strip()
+                    if not line_str:
+                        continue
+
+                    # Global Stop Anchor
+                    if "*FOR CREDIT CARD TRANSACTIONS EFFECTED IN CURRENCIES OTHER THAN HONG KONG DOLLARS" in line_str:
+                        global_stop = True
+                        break
+
+                    # Page 1 Anchors
+                    if page_num == 1:
+                        if "MINIMUM PAYMENT SUMMARY" in line_str or "SUMMARY 戶口概要" in line_str:
+                            break
+                        if not page1_active:
+                            if any(k in line_str for k in ["Post date", "Trans date", "Description of transaction"]):
+                                page1_active = True
+                            continue
+
+                    # Exclusion Rule
+                    if "PREVIOUS BALANCE" in line_str or "上月結欠/結餘" in line_str:
+                        continue
+
+                    # Line 2: Apple Pay Metadata (Discard)
+                    if "APPLE PAY-MOBILE:" in line_str:
+                        continue
+
+                    # Line 3: Capture Exchange Rate
+                    m_fx = re.search(r"\*?EXCHANGE\s+RATE:\s*([\d\.]+)", line_str, re.IGNORECASE)
+                    if m_fx:
+                        if pending_txn:
+                            pending_txn["fx_rate"] = m_fx.group(1)
+                        continue
+
+                    # Line 1 Start: Matches two date tokens
+                    date_pattern = r"^(\d{1,2}\s*[A-Za-z]{3})\s+(\d{1,2}\s*[A-Za-z]{3})\s+(.*)"
+                    m_date = re.match(date_pattern, line_str, re.IGNORECASE)
+                    if m_date:
+                        if pending_txn:
+                            parsed = self._parse_transaction_rest(pending_txn, stmt_month, stmt_year)
+                            if parsed:
+                                raw_txns.append(parsed)
+                            pending_txn = None
+
+                        pending_txn = {
+                            "post_date_raw": m_date.group(1),
+                            "trans_date_raw": m_date.group(2),
+                            "rest": m_date.group(3),
+                            "fx_rate": None
+                        }
+
+            if pending_txn and not global_stop:
+                parsed = self._parse_transaction_rest(pending_txn, stmt_month, stmt_year)
+                if parsed:
+                    raw_txns.append(parsed)
+
+        # Persistence to SQLite
+        self._persist_to_sqlite(raw_txns, filename)
+
+        # Build final DataFrame
+        df_columns = [
+            "post_date", "trans_date", "merchant", "country",
+            "purchase_currency", "aud_amount", "hkd_amount", "fx_rate"
+        ]
+
+        formatted_rows = []
+        for txn in raw_txns:
+            formatted_rows.append({
+                "post_date": txn["post_date"],
+                "trans_date": txn["trans_date"],
+                "merchant": txn["merchant"],
+                "country": txn["country"] or "",
+                "purchase_currency": txn["purchase_currency"] or "",
+                "aud_amount": self._format_dollar(txn["aud_amount"]),
+                "hkd_amount": self._format_dollar(txn["hkd_amount"]),
+                "fx_rate": txn["fx_rate"] if txn["fx_rate"] is not None else ""
+            })
+
+        df = pd.DataFrame(formatted_rows, columns=df_columns)
+
+        if output_csv_path:
+            out_dir = os.path.dirname(output_csv_path)
+            if out_dir:
+                os.makedirs(out_dir, exist_ok=True)
+            df.to_csv(output_csv_path, index=False)
+
+        return df
+
     @staticmethod
-    def _clean_merchant_info(raw_merchant: str) -> Tuple[str, str, str]:
-        tokens = raw_merchant.strip().split()
-        currency = None
-        country = None
+    def _extract_statement_date(pdf: pdfplumber.PDF) -> Tuple[int, int]:
+        """Extract statement_month and statement_year from Page 1 header."""
+        page1 = pdf.pages[0]
+        text = page1.extract_text() or ""
+        lines = text.split("\n")
 
-        if tokens and tokens[-1].upper() in HKStatementParser.KNOWN_CURRENCIES:
-            currency = tokens.pop().upper()
+        for i, line in enumerate(lines):
+            if "Statement date" in line or "結單日" in line:
+                search_block = " ".join(lines[i:i + 3])
+                match = re.search(r"\b(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\b", search_block, re.IGNORECASE)
+                if match:
+                    _, m_str, y_str = match.groups()
+                    return HKStatementParser.MONTH_MAP.get(m_str.upper(), 1), int(y_str)
 
-        if tokens and len(tokens[-1]) == 2 and tokens[-1].isalpha() and tokens[-1].isupper():
-            country = tokens.pop().upper()
-
-        merchant_name = " ".join(tokens)
-
-        if country and not currency:
-            currency = "HKD"
-
-        if not country and not currency:
-            country = "HK"
-            currency = "HKD"
-
-        if currency and not country:
-            country = "HK"
-
-        return merchant_name, country or "HK", currency or "HKD"
-
-    @staticmethod
-    def _format_monetary_value(raw_val: Optional[str]) -> str:
-        if not raw_val:
-            return ""
-        cleaned = raw_val.replace('CR', '').replace('$', '').replace(',', '').strip()
-        try:
-            val = float(cleaned)
-            return f"${val:,.2f}"
-        except ValueError:
-            return ""
-
-    @staticmethod
-    def _parse_fx_rate(line: str) -> Optional[str]:
-        match = re.search(r'\*?\s*EXCHANGE RATE\s*:\s*([\d\.]+)', line, re.IGNORECASE)
+        match = re.search(r"\b(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\b", text, re.IGNORECASE)
         if match:
-            return match.group(1)
-        return None
+            _, m_str, y_str = match.groups()
+            return HKStatementParser.MONTH_MAP.get(m_str.upper(), 1), int(y_str)
+
+        now = datetime.now()
+        return now.month, now.year
 
     @staticmethod
-    def _is_apple_pay_line(line: str) -> bool:
-        return "APPLE PAY" in line.upper()
+    def _parse_raw_date(date_str: str, stmt_month: int, stmt_year: int) -> str:
+        """Parse raw date string '09JUN' / '09 JUN' into DD-MM-YYYY format."""
+        match = re.search(r"(\d{1,2})\s*([A-Za-z]{3})", date_str)
+        if not match:
+            return ""
+
+        day = int(match.group(1))
+        month_str = match.group(2).upper()
+        month = HKStatementParser.MONTH_MAP.get(month_str, 1)
+
+        year = stmt_year - 1 if month > stmt_month else stmt_year
+        return f"{day:02d}-{month:02d}-{year:04d}"
 
     @staticmethod
-    def _is_global_stop_anchor(line: str) -> bool:
-        return "FOR CREDIT CARD TRANSACTIONS EFFECTED IN CURRENCIES OTHER THAN HONG KONG DOLLARS" in line.upper()
+    def _parse_float_amount(amt_str: Optional[str]) -> Optional[float]:
+        """Convert monetary string into float."""
+        if not amt_str:
+            return None
+        clean_str = amt_str.replace(",", "").replace("$", "")
+        if clean_str.endswith("CR"):
+            return -float(clean_str[:-2])
+        return float(clean_str)
 
     @staticmethod
-    def _categorize_merchant(merchant: str) -> str:
-        m_upper = merchant.upper()
-        for cat, kws in HKStatementParser.CATEGORIES.items():
-            for kw in kws:
-                if kw in m_upper:
-                    return cat
+    def _format_dollar(val: Optional[float]) -> str:
+        """Format numerical float as currency string."""
+        if val is None:
+            return ""
+        if val < 0:
+            return f"-${abs(val):,.2f}"
+        return f"${val:,.2f}"
+
+    @staticmethod
+    def _categorise_merchant(merchant: str) -> str:
+        """Categorise merchant using keyword mapping."""
+        merchant_upper = merchant.upper()
+        for category, keywords in HKStatementParser.CATEGORIES_MAP.items():
+            for kw in keywords:
+                if kw in merchant_upper:
+                    return category
         return "Uncategorised"
 
     @staticmethod
-    def _is_excluded_from_db(merchant: str) -> bool:
-        m_upper = merchant.upper()
-        return "IFS PAYMENT" in m_upper or "PAYMENT - THANK YOU" in m_upper
+    def _parse_transaction_rest(
+        pending_txn: Dict[str, Any], stmt_month: int, stmt_year: int
+    ) -> Optional[Dict[str, Any]]:
+        """Parse transaction details from raw Line 1 components."""
+        rest = pending_txn["rest"].strip()
 
-    def parse(self) -> List[Dict[str, Any]]:
-        transactions: List[Dict[str, Any]] = []
+        # Check Exclusion Filters
+        for excluded in ["IFS PAYMENT", "PAYMENT - THANK YOU", "PREVIOUS BALANCE", "上月結欠/結餘"]:
+            if excluded in rest:
+                return None
 
-        try:
-            with pdfplumber.open(self.pdf_path) as pdf:
-                self._extract_statement_date(pdf)
+        post_date = HKStatementParser._parse_raw_date(pending_txn["post_date_raw"], stmt_month, stmt_year)
+        trans_date = HKStatementParser._parse_raw_date(pending_txn["trans_date_raw"], stmt_month, stmt_year)
 
-                current_txn: Optional[Dict[str, Any]] = None
-                date_start_re = re.compile(
-                    r'^\s*(\d{1,2}\s*(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC))\s+'
-                    r'(\d{1,2}\s*(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC))\s+(.*)$',
-                    re.IGNORECASE
-                )
+        tokens = rest.split()
+        if not tokens:
+            return None
 
-                stop_all = False
+        amount_pattern = re.compile(r"^-?[\d,]+\.\d{2}(?:CR)?$")
 
-                for page_num, page in enumerate(pdf.pages, start=1):
-                    if stop_all:
-                        break
+        # Rightmost token: HKD Amount
+        if not amount_pattern.match(tokens[-1]):
+            return None
+        hkd_amount_str = tokens.pop()
 
-                    if page_num == 2:
-                        continue
+        # Second rightmost token: Foreign/AUD Amount (optional)
+        foreign_amount_str = None
+        if tokens and amount_pattern.match(tokens[-1]):
+            foreign_amount_str = tokens.pop()
 
-                    page_text = page.extract_text() or ""
-                    lines = page_text.split('\n')
+        # Currency code (optional)
+        purchase_currency = None
+        if tokens and tokens[-1].upper() in HKStatementParser.CURRENCY_CODES:
+            purchase_currency = tokens.pop().upper()
 
-                    in_page_txns = (page_num != 1)
+        # Country code (optional)
+        country = None
+        if tokens and len(tokens[-1]) == 2 and tokens[-1].isupper() and tokens[-1].isalpha():
+            country = tokens.pop().upper()
 
-                    for line in lines:
-                        line_str = line.strip()
-                        if not line_str:
-                            continue
+        merchant = " ".join(tokens).strip()
 
-                        if self._is_global_stop_anchor(line_str):
-                            stop_all = True
-                            break
+        # Edge cases
+        if country and not purchase_currency and not pending_txn["fx_rate"]:
+            purchase_currency = "HKD"
 
-                        if page_num == 1:
-                            if "MINIMUM PAYMENT SUMMARY" in line_str.upper() or "SUMMARY 戶口概要" in line_str.upper():
-                                break
-                            if "PREVIOUS BALANCE" in line_str.upper() or "上月結欠/結餘" in line_str.upper():
-                                continue
-                            if not in_page_txns:
-                                if ("POST DATE" in line_str.upper() and "TRANS DATE" in line_str.upper()) or \
-                                   ("DESCRIPTION OF TRANSACTION" in line_str.upper()):
-                                    in_page_txns = True
-                                continue
+        if not country and not purchase_currency:
+            country = "HK"
+            purchase_currency = "HKD"
 
-                        match = date_start_re.match(line_str)
-                        if match:
-                            if current_txn:
-                                transactions.append(current_txn)
-                                current_txn = None
+        hkd_amount = HKStatementParser._parse_float_amount(hkd_amount_str)
+        aud_amount = HKStatementParser._parse_float_amount(foreign_amount_str)
 
-                            raw_post = match.group(1)
-                            raw_trans = match.group(2)
-                            rest = match.group(3)
+        return {
+            "post_date": post_date,
+            "trans_date": trans_date,
+            "merchant": merchant,
+            "country": country,
+            "purchase_currency": purchase_currency,
+            "aud_amount": aud_amount,
+            "hkd_amount": hkd_amount,
+            "fx_rate": pending_txn["fx_rate"]
+        }
 
-                            two_amt_match = re.match(
-                                r'^(.*?)\s+([\d,]+\.\d{2}(?:\s*CR)?)\s+([\d,]+\.\d{2}(?:\s*CR)?)\s*$',
-                                rest, re.IGNORECASE
-                            )
-                            one_amt_match = re.match(
-                                r'^(.*?)\s+([\d,]+\.\d{2}(?:\s*CR)?)\s*$',
-                                rest, re.IGNORECASE
-                            )
+    def _init_db_and_check_log(self, filename: str) -> None:
+        """Initialize database schema and check statement duplicate log."""
+        db_dir = os.path.dirname(self.DB_PATH)
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
 
-                            if two_amt_match:
-                                merchant_part = two_amt_match.group(1)
-                                aud_amt_raw = two_amt_match.group(2)
-                                hkd_amt_raw = two_amt_match.group(3)
-                            elif one_amt_match:
-                                merchant_part = one_amt_match.group(1)
-                                aud_amt_raw = None
-                                hkd_amt_raw = one_amt_match.group(2)
-                            else:
-                                merchant_part = rest
-                                aud_amt_raw = None
-                                hkd_amt_raw = None
-
-                            m_name, country, currency = self._clean_merchant_info(merchant_part)
-
-                            current_txn = {
-                                "post_date": self._format_transaction_date(raw_post),
-                                "trans_date": self._format_transaction_date(raw_trans),
-                                "merchant": m_name,
-                                "country": country,
-                                "purchase_currency": currency,
-                                "aud_amount": self._format_monetary_value(aud_amt_raw),
-                                "hkd_amount": self._format_monetary_value(hkd_amt_raw),
-                                "fx_rate": ""
-                            }
-                        else:
-                            if current_txn:
-                                if self._is_apple_pay_line(line_str):
-                                    continue
-                                rate = self._parse_fx_rate(line_str)
-                                if rate:
-                                    current_txn["fx_rate"] = rate
-
-                if current_txn:
-                    transactions.append(current_txn)
-        except Exception as e:
-            pass
-
-        return transactions
-
-    def save_to_db(self, transactions: List[Dict[str, Any]], db_path: str = "db/personal-expense-tracker.db") -> None:
-        try:
-            db_dir = os.path.dirname(db_path)
-            if db_dir:
-                os.makedirs(db_dir, exist_ok=True)
-
-            conn = sqlite3.connect(db_path)
+        with sqlite3.connect(self.DB_PATH) as conn:
             cursor = conn.cursor()
 
             cursor.execute("""
-            CREATE TABLE IF NOT EXISTS "category" (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                category_name TEXT UNIQUE
-            );
+                CREATE TABLE IF NOT EXISTS "category" (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    category_name TEXT UNIQUE
+                );
             """)
 
             cursor.execute("""
-            CREATE TABLE IF NOT EXISTS "country" (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                country_name TEXT UNIQUE,
-                country_code TEXT UNIQUE
-            );
+                CREATE TABLE IF NOT EXISTS "country" (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    country_name TEXT UNIQUE,
+                    country_code TEXT UNIQUE
+                );
             """)
 
             cursor.execute("""
-            CREATE TABLE IF NOT EXISTS "currency" (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                currency_country_id INTEGER,
-                currency_code TEXT UNIQUE,
-                FOREIGN KEY(currency_country_id) REFERENCES "country"(id)
-            );
+                CREATE TABLE IF NOT EXISTS "currency" (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    currency_country_id INTEGER,
+                    currency_code TEXT UNIQUE,
+                    FOREIGN KEY(currency_country_id) REFERENCES "country"(id)
+                );
             """)
 
             cursor.execute("""
-            CREATE TABLE IF NOT EXISTS "transaction" (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                post_date DATE,
-                trans_date DATE,
-                merchant TEXT,
-                country_id INTEGER,
-                purchase_currency_id INTEGER,
-                txn_amount REAL,
-                hkd_amount REAL,
-                fx_rate NUMERIC,
-                category_id INTEGER,
-                FOREIGN KEY(country_id) REFERENCES "country"(id),
-                FOREIGN KEY(purchase_currency_id) REFERENCES "currency"(id),
-                FOREIGN KEY(category_id) REFERENCES "category"(id)
-            );
+                CREATE TABLE IF NOT EXISTS "transaction" (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    post_date DATE,
+                    trans_date DATE,
+                    merchant TEXT,
+                    country_id INTEGER,
+                    purchase_currency_id INTEGER,
+                    txn_amount REAL,
+                    hkd_amount REAL,
+                    fx_rate NUMERIC,
+                    category_id INTEGER,
+                    FOREIGN KEY(country_id) REFERENCES "country"(id),
+                    FOREIGN KEY(purchase_currency_id) REFERENCES "currency"(id),
+                    FOREIGN KEY(category_id) REFERENCES "category"(id)
+                );
             """)
 
-            for txn in transactions:
-                merchant = txn["merchant"]
-                if self._is_excluded_from_db(merchant):
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS "statement_log" (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    filename TEXT UNIQUE NOT NULL,
+                    processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+
+            cursor.execute('SELECT id FROM "statement_log" WHERE filename = ?', (filename,))
+            if cursor.fetchone() is not None:
+                raise ValueError(f"Statement '{filename}' has already been processed.")
+
+    def _persist_to_sqlite(self, raw_txns: List[Dict[str, Any]], filename: str) -> None:
+        """Persist structured transactions and update log in SQLite."""
+        with sqlite3.connect(self.DB_PATH) as conn:
+            cursor = conn.cursor()
+
+            for txn in raw_txns:
+                # Exclusion filter guard
+                if any(ex in txn["merchant"].upper() for ex in ["IFS PAYMENT", "PAYMENT - THANK YOU"]):
                     continue
 
-                cat_name = self._categorize_merchant(merchant)
-                cursor.execute("SELECT id FROM category WHERE category_name = ?", (cat_name,))
-                cat_row = cursor.fetchone()
-                if cat_row:
-                    cat_id = cat_row[0]
-                else:
-                    cursor.execute("INSERT INTO category (category_name) VALUES (?)", (cat_name,))
-                    cat_id = cursor.lastrowid
+                cat_name = self._categorise_merchant(txn["merchant"])
+                cat_id = self._get_or_create_category(cursor, cat_name)
+                country_id = self._get_or_create_country(cursor, txn["country"])
+                currency_id = self._get_or_create_currency(cursor, txn["purchase_currency"], country_id)
 
-                country_code = txn["country"]
-                country_id = None
-                if country_code:
-                    cursor.execute("SELECT id FROM country WHERE country_code = ?", (country_code,))
-                    c_row = cursor.fetchone()
-                    if c_row:
-                        country_id = c_row[0]
-                    else:
-                        cursor.execute("INSERT INTO country (country_name, country_code) VALUES (?, ?)", (country_code, country_code))
-                        country_id = cursor.lastrowid
+                p_parts = txn["post_date"].split("-")
+                t_parts = txn["trans_date"].split("-")
+                post_date_iso = f"{p_parts[2]}-{p_parts[1]}-{p_parts[0]}"
+                trans_date_iso = f"{t_parts[2]}-{t_parts[1]}-{t_parts[0]}"
 
-                curr_code = txn["purchase_currency"]
-                curr_id = None
-                if curr_code:
-                    cursor.execute("SELECT id FROM currency WHERE currency_code = ?", (curr_code,))
-                    curr_row = cursor.fetchone()
-                    if curr_row:
-                        curr_id = curr_row[0]
-                    else:
-                        cursor.execute("INSERT INTO currency (currency_country_id, currency_code) VALUES (?, ?)", (country_id, curr_code))
-                        curr_id = cursor.lastrowid
-
-                def to_iso(d_str: str) -> Optional[str]:
-                    if not d_str:
-                        return None
-                    parts = d_str.split('-')
-                    return f"{parts[2]}-{parts[1]}-{parts[0]}" if len(parts) == 3 else d_str
-
-                def parse_num(val_str: str) -> Optional[float]:
-                    if not val_str:
-                        return None
-                    cleaned = val_str.replace('$', '').replace(',', '').strip()
-                    try:
-                        return float(cleaned)
-                    except ValueError:
-                        return None
-
-                p_date = to_iso(txn["post_date"])
-                t_date = to_iso(txn["trans_date"])
-                txn_amt = parse_num(txn["aud_amount"])
-                hkd_amt = parse_num(txn["hkd_amount"])
-                fx = parse_num(txn["fx_rate"])
+                txn_amount = txn["aud_amount"] if txn["aud_amount"] is not None else txn["hkd_amount"]
+                fx_rate_val = float(txn["fx_rate"]) if txn["fx_rate"] is not None else None
 
                 cursor.execute("""
-                INSERT INTO "transaction" (
-                    post_date, trans_date, merchant, country_id, purchase_currency_id,
-                    txn_amount, hkd_amount, fx_rate, category_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (p_date, t_date, merchant, country_id, curr_id, txn_amt, hkd_amt, fx, cat_id))
+                    INSERT INTO "transaction" (
+                        post_date, trans_date, merchant, country_id, purchase_currency_id,
+                        txn_amount, hkd_amount, fx_rate, category_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    post_date_iso, trans_date_iso, txn["merchant"], country_id, currency_id,
+                    txn_amount, txn["hkd_amount"], fx_rate_val, cat_id
+                ))
 
+            cursor.execute('INSERT INTO "statement_log" (filename) VALUES (?)', (filename,))
             conn.commit()
-            conn.close()
-        except Exception as e:
-            pass
+
+    @staticmethod
+    def _get_or_create_category(cursor: sqlite3.Cursor, category_name: str) -> int:
+        cursor.execute('SELECT id FROM "category" WHERE category_name = ?', (category_name,))
+        row = cursor.fetchone()
+        if row:
+            return row[0]
+        cursor.execute('INSERT INTO "category" (category_name) VALUES (?)', (category_name,))
+        return cursor.lastrowid
+
+    @staticmethod
+    def _get_or_create_country(cursor: sqlite3.Cursor, country_code: Optional[str]) -> Optional[int]:
+        if not country_code:
+            return None
+        cursor.execute('SELECT id FROM "country" WHERE country_code = ?', (country_code,))
+        row = cursor.fetchone()
+        if row:
+            return row[0]
+        cursor.execute('INSERT INTO "country" (country_name, country_code) VALUES (?, ?)', (country_code, country_code))
+        return cursor.lastrowid
+
+    @staticmethod
+    def _get_or_create_currency(
+        cursor: sqlite3.Cursor, currency_code: Optional[str], country_id: Optional[int]
+    ) -> Optional[int]:
+        if not currency_code:
+            return None
+        cursor.execute('SELECT id FROM "currency" WHERE currency_code = ?', (currency_code,))
+        row = cursor.fetchone()
+        if row:
+            return row[0]
+        cursor.execute(
+            'INSERT INTO "currency" (currency_country_id, currency_code) VALUES (?, ?)',
+            (country_id, currency_code)
+        )
+        return cursor.lastrowid
 
 
 def parse_statement(pdf_path: str, output_csv_path: Optional[str] = None) -> pd.DataFrame:
-    parser = HKStatementParser(pdf_path)
-    txns = parser.parse()
-    parser.save_to_db(txns)
-
-    columns = [
-        "post_date", "trans_date", "merchant", "country",
-        "purchase_currency", "aud_amount", "hkd_amount", "fx_rate"
-    ]
-
-    df = pd.DataFrame(txns, columns=columns) if txns else pd.DataFrame(columns=columns)
-
-    if output_csv_path:
-        out_dir = os.path.dirname(output_csv_path)
-        if out_dir:
-            os.makedirs(out_dir, exist_ok=True)
-        df.to_csv(output_csv_path, index=False)
-
-    return df
+    """Entry point function to parse HK Credit Card PDF statements."""
+    parser = HKStatementParser()
+    return parser.process(pdf_path, output_csv_path)
