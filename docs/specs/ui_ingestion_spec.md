@@ -1,12 +1,12 @@
 # Specification: Statement Ingestion & Operational Dashboard UI
 
 ## 1. Objective
-Build a modular, multi-page ready Streamlit web application (`src/app.py`) featuring single-word physical button navigation ("Dashboard", "Upload", "Charts") in the sidebar. The primary view focuses on **Upload**, allowing users to select/upload downloadable PDF credit card statements on the main page, trigger the core parser (`src/pdf_parser.py`), ingest transactions into SQLite (`db/personal-expense-tracker.db`), inspect aggregate metrics (total transactions & uploaded statement date range derived from `statement_log`), and view a full raw transaction grid.
+Build a modular, multi-page ready Streamlit web application (`src/app.py`) featuring styled sidebar navigation using `streamlit-option-menu`. The primary view focuses on **Upload**, featuring a high-density layout with aligned top margins, uniform 240px-height 3-column bordered cards with scaled typography, followed by an explicitly paginated 10-row transaction table.
 
 ## 2. Technical Stack & Dependencies
 - **Language**: Python 3.x
-- **UI Framework**: Streamlit (`streamlit`)
-- **Data & Processing**: `pandas`, `sqlite3`, `re`, `os`
+- **UI Framework**: Streamlit (`streamlit`), `streamlit-option-menu`
+- **Data & Processing**: `pandas`, `sqlite3`, `re`, `os`, `math`
 - **Core Engine**: `src/pdf_parser.py` (`parse_statement()`)
 - **Database Target**: `db/personal-expense-tracker.db`
 - **Database Ownership Contract**: 
@@ -15,30 +15,71 @@ Build a modular, multi-page ready Streamlit web application (`src/app.py`) featu
 
 ---
 
-## 3. UI Design Principles & Navigation Structure
+## 3. UI Design Principles & Responsive Layout
 
-### 3.1 Sidebar Navigation
-- **Sidebar Role**: Render single-word physical action buttons (`st.sidebar.button`) to toggle active page state (`st.session_state`).
-- **Navigation Options**:
-  1. `Dashboard` (Placeholder view for future category averages & statement overviews)
-  2. `Upload` (Active target view for main-page statement selection, summary metrics, and raw grid)
-  3. `Charts` (Placeholder view for future real-time interactive charting and filtering)
+## 3. UI Design Principles & Responsive Layout
 
-### 3.2 Upload View Screen Layout & Summary Metrics
-- **Page Title**: `st.title("Upload")`
-- **Subtitle**: `st.markdown("Select PDF credit card statement to process into anonymised transactions to be stored and used for budget planning.")`
-- **Main Page Ingestion Section**:
-  - File uploader widget: `st.file_uploader("Select PDF Statement", type=["pdf"])`
-  - Processing button: `st.button("Process Statement", type="primary")`
-  - Status Feedback: Visual spinner (`st.spinner`) during processing. If duplicate or invalid, display clear error alert. Upon successful ingestion, display: `"Statement processed successfully!"`.
+### 3.1 Sticky Header & Flex Height Equalization (CSS Injection)
+Inject strict CSS via `st.markdown("<style>...</style>", unsafe_allow_html=True)` to fix sidebar top margin offset, solid sticky header alignment, and equal card border stretching:
 
-- **Upload Summary Cards (`st.metric`)**:
-  - Card 1: **Total Transactions Uploaded** (`SELECT COUNT(*) FROM "transaction"`).
-  - Card 2: **Statements Uploaded Date Range** (Queries `SELECT filename FROM statement_log`; parses filenames formatted `YYYY-MM-DD_Statement.pdf` to find minimum and maximum dates and formats as `"From Month YYYY to Month YYYY"`, e.g., `"From January 2026 to July 2026"`). If `statement_log` is empty, displays `"No statements uploaded"`.
+- **Sidebar Flush Top Alignment**:
+  - `[data-testid="stSidebarHeader"] { display: none !important; }`
+  - `section[data-testid="stSidebar"] > div:first-child { padding-top: 0.5rem !important; }`
+  - `[data-testid="stSidebarContent"] { padding-top: 0rem !important; margin-top: 0rem !important; }`
 
-### 3.3 Main Data Area (Raw Transaction Preview)
-1. **Schema & Query Strategy**:
-   - `src/app.py` queries raw transactions directly from the normalized schema:
+- **Solid Left-Aligned Sticky Header**:
+  - Target `[data-testid="stHeader"]` with `background-color: #0e1117 !important; z-index: 999 !important; display: flex !important; justify-content: flex-start !important; padding-left: 2rem !important;`
+  - Inject sticky page title ("Upload") flush left using `::before`.
+
+- **Main Content Padding**:
+  - `.block-container { padding-top: 4rem !important; padding-bottom: 1rem !important; padding-left: 2rem !important; padding-right: 2rem !important; }`
+
+- **Equal Card Dimensions & Border Wrapper Lock**:
+  - Target `div[data-testid="stVerticalBlockBorderWrapper"] > div` and set `min-height: 215px !important;` alongside `flex: 1 !important;` so Cards 2 and 3 expand to match Card 1 exactly.
+
+- **Content Typography & Card Sizing**:
+  - `.metric-large`: `font-size: 8.8rem !important; font-weight: bold !important; line-height: 1.1 !important; color: #FFFFFF !important; margin-top: 0.5rem !important;`
+  - `.period-val`: `font-size: 2rem !important; font-weight: 600 !important; color: #FFFFFF !important; margin-bottom: 0.25rem !important;`
+  - `.period-label`: `font-size: 0.85rem !important; color: #808495 !important; margin-top: 0.25rem !important;`
+
+### 3.2 Sidebar Navigation
+- **No Sidebar Title**: Do not render `st.sidebar.title()` or heading labels in the sidebar.
+- **Option Menu Control**: Render `option_menu` inside the sidebar (`streamlit_option_menu.option_menu`) flush with the top padding:
+  - Menu Items: `["Dashboard", "Upload", "Charts"]`
+  - Icons: `["house", "cloud-upload", "bar-chart"]`
+  - Default Index: `1` (Upload)
+  - Custom Styles:
+    - Sidebar background: transparent / inherited sidebar background color.
+    - Text color: `#FFFFFF` (white).
+    - Selected background highlight & icons: `#31333F` / matching transaction table header grey.
+
+### 3.3 Upload View Screen Layout & Equal 3-Column Card Row
+- **Header Title**: Rendered via solid sticky header CSS in `[data-testid="stHeader"]` (no `st.title()` call in body).
+- **Subtitle**: `st.markdown("Upload a PDF statement to process into anonymised transactions to be stored and used for budget planning.")`
+
+- **3-Column Flex Card Row (`st.columns(3)`)**:
+  - Columns wrapped in `st.container(border=True)` flex-stretch dynamically with top-aligned headers:
+    - **Card 1 (File Picker)**:
+      - Helper label: `"Upload a PDF statement"`.
+      - Widgets: `st.file_uploader` (PDFs only, `label_visibility="collapsed"`) and `st.button("Process Statement", type="primary", use_container_width=True)`.
+    - **Card 2 (Total Transactions Uploaded)**:
+      - Content inside `<div class="metric-card-container">`:
+        - Top-aligned Label: `"Total transactions uploaded"`
+        - Count display: `<div class="metric-large">{total_txns}</div>` (8.8rem font size).
+    - **Card 3 (Statement Period Uploaded)**:
+      - Content inside `<div class="metric-card-container">`:
+        - Label: `"Statement period uploaded"`
+        - Date values rendered on separate lines:
+          - "From:" label (`.period-label`), followed by minimum date (`Month YYYY`, e.g., `June 2026`) formatted with `.period-val` (2rem font size).
+          - "To:" label (`.period-label`), followed by maximum date (`Month YYYY`, e.g., `July 2026`) formatted with `.period-val` (2rem font size).
+- **Status Feedback**: Visual spinner (`st.spinner`) during processing. If duplicate or invalid, display clear error alert. Upon successful ingestion, display: `"Statement processed successfully!"`.
+
+### 3.4 Main Data Area (Paginated 10-Row Transaction Table)
+1. **Grid Section Header**: `st.subheader("Transactions uploaded")`
+2. **Database Repository Method Contract**:
+   - `DatabaseRepository.get_transactions_dataframe(self)` queries raw transactions and returns a Pandas DataFrame.
+3. **Query Strategy**:
+   - Queries transactions directly from the normalized schema:
      ```sql
      SELECT 
          t.trans_date, 
@@ -53,9 +94,13 @@ Build a modular, multi-page ready Streamlit web application (`src/app.py`) featu
      LEFT JOIN currency curr ON t.purchase_currency_id = curr.id
      ORDER BY t.trans_date DESC, t.id DESC
      ```
-2. **Raw Transaction Grid (`st.dataframe`)**:
-   - Displays all ingested transactions in a scrollable/paginated table (`st.dataframe(..., height=500)`).
-   - Columns: `trans_date`, `merchant`, `category_name`, `txn_amount`, `purchase_currency`, `hkd_amount`, `fx_rate`.
+4. **Explicit 10-Row Pagination Logic**:
+   - Implement explicit page controls for the DataFrame in `app.py`:
+     - Calculate total pages: `math.ceil(total_rows / 10)`.
+     - Maintain `current_page` in `st.session_state`.
+     - Slice DataFrame: `df.iloc[(page - 1) * 10 : page * 10]`.
+     - Display pagination control bar below the table with **Previous Page**, **Page X of Y**, and **Next Page** buttons.
+5. **Dataframe Columns**: `trans_date`, `merchant`, `category_name`, `txn_amount`, `purchase_currency`, `hkd_amount`, `fx_rate`.
 
 ---
 
@@ -75,39 +120,39 @@ Build a modular, multi-page ready Streamlit web application (`src/app.py`) featu
 
 ### Story 1
 **Target Epic**: `Statement Ingestion UI` (New Epic)  
-**Title**: `[ UI | PY | DB ] Main-Page PDF Statement Selector & Duplicate Log Prevention`
+**Title**: `[ UI | PY | DB ] Top Margin Alignment & Scaled Metric Card Typography`
 
 **Description**:
 AS A Personal Tracker User  
-I WANT TO upload statements on the main Upload screen and prevent duplicate file processing  
-SO THAT my transaction data remains accurate and free from duplicated records.  
+I WANT TO view aligned top margins and equal-height 240px metric cards with 5rem numbers  
+SO THAT the Upload screen layout is balanced and easy to read.  
 
 Acceptance Criteria:
 
-Scenario 1: Main-Page PDF Ingestion & Log Tracking  
-GIVEN the Streamlit app is on the "Upload" screen  
-WHEN I upload a new valid PDF statement and click "Process Statement"  
-THEN `parse_statement()` executes, the filename is logged to `statement_log`, and `"Statement processed successfully!"` is displayed.  
+Scenario 1: Sidebar Top Margin Offset  
+GIVEN the Streamlit dashboard is open  
+WHEN the page renders  
+THEN `stSidebarContent` top padding is reduced to 1.5rem, placing the option menu flush with the main page title.  
 
-Scenario 2: Duplicate Statement Prevention  
-GIVEN a statement file has already been processed previously  
-WHEN I attempt to upload the same statement filename again  
-THEN processing halts early and displays an error indicating the statement has already been ingested.  
+Scenario 2: 5rem Metric Typography and Equal Heights  
+GIVEN I am on the Upload screen  
+WHEN the metric cards render  
+THEN Total Transactions displays in 5rem font, and all three bordered cards match 240px height.  
 
 ---
 
-### Story 2
+### Story  story 2
 **Target Epic**: `PET-4` (`Tabular UI`)  
-**Title**: `[ UI | PY | DB ] Upload Summary Metrics & Raw Transaction Grid`
+**Title**: `[ UI | PY | DB ] Explicit 10-Row Table Pagination`
 
 **Description**:
 AS A Personal Tracker User  
-I WANT TO view overall transaction counts, statement date ranges, and a raw transaction grid on the Upload screen  
-SO THAT I can immediately verify statement ingestion totals and historical date ranges.  
+I WANT TO navigate historical transactions in chunks of 10 rows using explicit page controls  
+SO THAT I can inspect records cleanly without infinite vertical scrolling.  
 
 Acceptance Criteria:
 
-Scenario 1: Real-Time Summary & Grid Refresh  
-GIVEN a PDF statement has been ingested  
-WHEN the Upload screen loads  
-THEN the Total Transactions metric, Statement Date Range metric (queried directly from `statement_log`), and raw transaction grid populate dynamically from SQLite.
+Scenario 1: Explicit Page Slice Controls  
+GIVEN historical transactions exist in SQLite  
+WHEN the table renders  
+THEN exactly 10 rows display per page with Previous/Next page controls updating the view.

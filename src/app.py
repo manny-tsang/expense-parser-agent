@@ -84,10 +84,19 @@ class StatementApp:
     def inject_css() -> None:
         css = """
         <style>
-        [data-testid="stSidebarContent"] {
+        /* 1. Flush Sidebar Top Alignment */
+        [data-testid="stSidebarHeader"] {
+            display: none !important;
+        }
+        section[data-testid="stSidebar"] > div:first-child {
             padding-top: 0.5rem !important;
         }
+        [data-testid="stSidebarContent"] {
+            padding-top: 0rem !important;
+            margin-top: 0rem !important;
+        }
 
+        /* 2. Solid Left-Aligned Sticky Header */
         [data-testid="stHeader"] {
             background-color: #0e1117 !important;
             z-index: 999 !important;
@@ -112,30 +121,35 @@ class StatementApp:
             padding-right: 2rem !important;
         }
 
+/* 3. Equal Column Height Match across all 3 Cards */
         div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-            display: flex;
+            display: flex !important;
         }
 
-        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] > div[data-testid="stVerticalBlock"] {
-            height: 100%;
-            display: flex;
-            flex-direction: column;
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] > div[data-testid="stVerticalBlockBorderWrapper"] {
+            width: 100% !important;
+            display: flex !important;
+            flex: 1 !important;
         }
 
-        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] > div[data-testid="stVerticalBlock"] > div[data-testid="element-container"] {
-            flex: 1;
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] > div[data-testid="stVerticalBlockBorderWrapper"] > div {
+            width: 100% !important;
+            min-height: 215px !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: flex-start !important;
         }
 
         .metric-card-container {
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-start;
-            padding: 0.25rem 0;
+            height: 100% !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: flex-start !important;
+            padding: 0.25rem 0 !important;
         }
 
         .metric-large {
-            font-size: 3.5rem;
+            font-size: 8.8rem;
             font-weight: bold;
             color: #FFFFFF;
             line-height: 1.1;
@@ -156,7 +170,7 @@ class StatementApp:
         }
 
         .period-val {
-            font-size: 1.1rem;
+            font-size: 2rem;
             font-weight: 600;
             color: #FFFFFF;
             margin-bottom: 0.25rem;
