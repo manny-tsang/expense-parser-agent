@@ -1,3 +1,4 @@
+import math
 import os
 import sqlite3
 import tempfile
@@ -7,70 +8,28 @@ import pandas as pd
 import streamlit as st
 from streamlit_option_menu import option_menu
 
-# Import parse_statement from core parser module if available
 try:
     from src.pdf_parser import parse_statement
 except ImportError:
     try:
         from pdf_parser import parse_statement
     except ImportError:
-
-        def parse_statement(file_path: str) -> None:
-            """Fallback placeholder function when pdf_parser module is unavailable."""
-            raise NotImplementedError(
-                "PDF parsing module 'src.pdf_parser' is not installed or available."
-            )
-
-
-DB_PATH = os.path.join("db", "personal-expense-tracker.db")
+        parse_statement = None
 
 
 class DatabaseRepository:
-    """Repository handling all database queries.
+    """Repository class for querying transaction and statement data."""
 
-    Strictly adheres to Database Ownership Contract:
-    DOES NOT perform DDL operations (CREATE TABLE, ALTER TABLE, etc.).
-    """
-
-    def __init__(self, db_path: str = DB_PATH) -> None:
+    def __init__(self, db_path: str = "db/personal-expense-tracker.db") -> None:
         self.db_path = db_path
 
-    def _get_connection(self) -> sqlite3.Connection:
-        """Establish and return a database connection."""
-        return sqlite3.connect(self.db_path)
-
-    def get_total_transactions(self) -> int:
-        """Query total count of transactions stored in the database."""
-        if not os.path.exists(self.db_path):
-            return 0
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute('SELECT COUNT(*) FROM "transaction"')
-                row = cursor.fetchone()
-                return int(row[0]) if row else 0
-        except (sqlite3.OperationalError, sqlite3.DatabaseError):
-            return 0
-
-    def get_statement_period(self) -> Tuple[Optional[str], Optional[str]]:
-        """Query the earliest and latest transaction dates."""
-        if not os.path.exists(self.db_path):
-            return None, None
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    'SELECT MIN(trans_date), MAX(trans_date) FROM "transaction"'
-                )
-                row = cursor.fetchone()
-                if row and row[0] is not None and row[1] is not None:
-                    return str(row[0]), str(row[1])
-                return None, None
-        except (sqlite3.OperationalError, sqlite3.DatabaseError):
-            return None, None
-
     def get_transactions_dataframe(self) -> pd.DataFrame:
-        """Retrieve historical transactions formatted for grid view."""
+        """
+        Queries raw transactions from the normalized database schema.
+        
+        Returns:
+            pd.DataFrame: Transactions dataset.
+        """
         columns = [
             "trans_date",
             "merchant",
@@ -80,253 +39,325 @@ class DatabaseRepository:
             "hkd_amount",
             "fx_rate",
         ]
+
         if not os.path.exists(self.db_path):
             return pd.DataFrame(columns=columns)
 
-        query = """
-        SELECT 
-            t.trans_date, 
-            t.merchant, 
-            c.category_name, 
-            t.txn_amount, 
-            curr.currency_code AS purchase_currency, 
-            t.hkd_amount, 
-            t.fx_rate
-        FROM "transaction" t
-        LEFT JOIN category c ON t.category_id = c.id
-        LEFT JOIN currency curr ON t.purchase_currency_id = curr.id
-        ORDER BY t.trans_date DESC, t.id DESC
-        """
         try:
-            with self._get_connection() as conn:
-                df = pd.read_sql_query(query, conn)
-                return df
-        except (sqlite3.OperationalError, pd.errors.DatabaseError):
+            conn = sqlite3.connect(self.db_path)
+            query = """
+            SELECT 
+                t.trans_date, 
+                t.merchant, 
+                c.category_name, 
+                t.txn_amount, 
+                curr.currency_code AS purchase_currency, 
+                t.hkd_amount, 
+                t.fx_rate
+            FROM "transaction" t
+            LEFT JOIN category c ON t.category_id = c.id
+            LEFT JOIN currency curr ON t.purchase_currency_id = curr.id
+            ORDER BY t.trans_date DESC, t.id DESC
+            """
+            df = pd.read_sql_query(query, conn)
+            conn.close()
+            return df
+        except (sqlite3.OperationalError, sqlite3.DatabaseError):
             return pd.DataFrame(columns=columns)
 
+    def has_statements(self) -> bool:
+        """
+        Checks if statement logs exist in the database.
+        
+        Returns:
+            bool: True if statement records exist, False otherwise.
+        """
+        if not os.path.exists(self.db_path):
+            return False
 
-def inject_custom_css() -> None:
-    """Inject custom CSS overrides for padding, margins, and card layouts."""
-    css = """
-    <style>
-    /* Compact Viewport Padding */
-    .block-container {
-        padding-top: 1rem;
-        padding-bottom: 1rem;
-        padding-left: 2rem;
-        padding-right: 2rem;
-    }
-    
-    /* Sidebar Margin Adjustment */
-    [data-testid="stSidebar"] > div:first-child {
-        padding-top: 0.5rem;
-    }
-
-    /* Card Content Styling */
-    .card-title {
-        font-size: 0.95rem;
-        font-weight: 600;
-        margin-bottom: 0.5rem;
-        color: #FAFAFA;
-    }
-
-    .metric-large {
-        font-size: 3rem;
-        font-weight: bold;
-        line-height: 1.2;
-        margin-top: 0.25rem;
-        margin-bottom: 0.25rem;
-    }
-
-    .period-text {
-        font-size: 1rem;
-        line-height: 1.4;
-        margin-top: 0.25rem;
-    }
-
-    .period-label {
-        color: #A0A0A0;
-    }
-
-    .period-val {
-        font-weight: 600;
-        color: #FFFFFF;
-        margin-bottom: 0.2rem;
-    }
-    </style>
-    """
-    st.markdown(css, unsafe_allow_html=True)
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM statement_log")
+            count = cursor.fetchone()[0]
+            conn.close()
+            return count > 0
+        except (sqlite3.OperationalError, sqlite3.DatabaseError):
+            return False
 
 
-def render_sidebar() -> str:
-    """Render styled sidebar navigation without top titles."""
-    with st.sidebar:
-        selected = option_menu(
-            menu_title=None,
-            options=["Dashboard", "Upload", "Charts"],
-            icons=["house", "cloud-upload", "bar-chart"],
-            default_index=1,
-            styles={
-                "container": {
-                    "padding": "0!important",
-                    "background-color": "transparent",
+class UIApp:
+    """Main Streamlit Operational Dashboard Application."""
+
+    def __init__(self) -> None:
+        self.repo = DatabaseRepository()
+
+    @staticmethod
+    def inject_custom_css() -> None:
+        """Injects custom CSS for padding alignment, card heights, and typography."""
+        css = """
+        <style>
+        /* Top Margin Alignment */
+        [data-testid="stSidebarContent"] {
+            padding-top: 1.5rem !important;
+        }
+
+        .block-container {
+            padding-top: 1.5rem !important;
+            padding-bottom: 1rem !important;
+            padding-left: 2rem !important;
+            padding-right: 2rem !important;
+        }
+
+        /* Uniform Card Dimensions */
+        [data-testid="stVerticalBlockBorderWrapper"] {
+            min-height: 240px !important;
+        }
+
+        .metric-card-container {
+            min-height: 240px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 0.5rem;
+        }
+
+        /* Scaled Typography Rules */
+        .metric-large {
+            font-size: 5rem !important;
+            font-weight: 800 !important;
+            line-height: 1 !important;
+            color: #FFFFFF !important;
+            margin-top: 0.5rem !important;
+            margin-bottom: 0.5rem !important;
+        }
+
+        .period-label {
+            color: #A0A0A0 !important;
+            font-size: 1.1rem !important;
+            font-weight: 500 !important;
+        }
+
+        .period-val {
+            font-weight: 700 !important;
+            font-size: 1.35rem !important;
+            color: #FFFFFF !important;
+            margin-bottom: 0.4rem !important;
+        }
+        </style>
+        """
+        st.markdown(css, unsafe_allow_html=True)
+
+    def render_sidebar(self) -> str:
+        """
+        Renders sidebar navigation using streamlit_option_menu.
+        
+        Returns:
+            str: Selected navigation menu item.
+        """
+        with st.sidebar:
+            selected = option_menu(
+                menu_title=None,
+                options=["Dashboard", "Upload", "Charts"],
+                icons=["house", "cloud-upload", "bar-chart"],
+                default_index=1,
+                styles={
+                    "container": {
+                        "padding": "0!important",
+                        "background-color": "transparent",
+                    },
+                    "icon": {"color": "#FFFFFF", "font-size": "16px"},
+                    "nav-link": {
+                        "color": "#FFFFFF",
+                        "font-size": "16px",
+                        "text-align": "left",
+                        "margin": "0px",
+                        "padding": "10px",
+                    },
+                    "nav-link-selected": {
+                        "background-color": "#31333F",
+                        "color": "#FFFFFF",
+                        "font-weight": "600",
+                    },
                 },
-                "icon": {"color": "#FFFFFF", "font-size": "16px"},
-                "nav-link": {
-                    "font-size": "14px",
-                    "text-align": "left",
-                    "margin": "0px",
-                    "color": "#FFFFFF",
-                    "--hover-color": "#262730",
-                },
-                "nav-link-selected": {
-                    "background-color": "#31333F",
-                    "color": "#FFFFFF",
-                },
-            },
+            )
+        return selected
+
+    def handle_file_upload(self, uploaded_file) -> None:
+        """Processes the uploaded PDF statement through the PDF parser engine."""
+        if uploaded_file is None:
+            st.error("Please select a PDF statement file to process.")
+            return
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+            tmp_file.write(uploaded_file.getvalue())
+            tmp_path = tmp_file.name
+
+        try:
+            with st.spinner("Processing statement..."):
+                if parse_statement is not None:
+                    try:
+                        parse_statement(tmp_path)
+                    except TypeError:
+                        parse_statement(tmp_path, self.repo.db_path)
+                else:
+                    st.error("Core Engine `src/pdf_parser.py` is not available.")
+                    return
+            st.success("Statement processed successfully!")
+        except Exception as err:
+            st.error(f"Failed to process statement: {str(err)}")
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+    def render_upload_view(self) -> None:
+        """Renders the Upload view with 3-column metric cards and paginated transaction table."""
+        st.title("Upload")
+        st.markdown(
+            "Upload a PDF statement to process into anonymised transactions to be stored and used for budget planning."
         )
-    return str(selected)
 
+        df = self.repo.get_transactions_dataframe()
+        has_logs = self.repo.has_statements()
+        total_txns = len(df)
 
-def format_date_str(date_str: Optional[str]) -> str:
-    """Format raw date string into Month YYYY display format."""
-    if not date_str:
-        return ""
-    try:
-        return pd.to_datetime(date_str).strftime("%b %Y")
-    except Exception:
-        return str(date_str)
+        col1, col2, col3 = st.columns(3)
 
-
-def render_upload_view(db_repo: DatabaseRepository) -> None:
-    """Render the primary Upload screen layout with 3 uniform cards and transaction grid."""
-    st.title("Upload")
-    st.markdown(
-        "Upload a PDF statement to process into anonymised transactions to be stored and used for budget planning."
-    )
-
-    # 3-Column Equal Card Row
-    col1, col2, col3 = st.columns(3)
-
-    # Card 1: File Picker
-    with col1:
-        with st.container(border=True):
-            st.markdown(
-                '<div class="card-title">Upload a PDF statement</div>',
-                unsafe_allow_html=True,
-            )
-            uploaded_file = st.file_uploader(
-                "Upload a PDF statement",
-                type=["pdf"],
-                label_visibility="collapsed",
-            )
-            process_clicked = st.button(
-                "Process Statement", type="primary", use_container_width=True
-            )
-
-    # Card 2: Total Transactions Uploaded Metric
-    with col2:
-        with st.container(border=True):
-            st.markdown(
-                '<div class="card-title">Total transactions uploaded</div>',
-                unsafe_allow_html=True,
-            )
-            total_txns = db_repo.get_total_transactions()
-            st.markdown(
-                f'<div class="metric-large">{total_txns}</div>',
-                unsafe_allow_html=True,
-            )
-
-    # Card 3: Statement Period Uploaded
-    with col3:
-        with st.container(border=True):
-            st.markdown(
-                '<div class="card-title">Statement period uploaded</div>',
-                unsafe_allow_html=True,
-            )
-            min_date, max_date = db_repo.get_statement_period()
-            if min_date and max_date:
-                min_fmt = format_date_str(min_date)
-                max_fmt = format_date_str(max_date)
-                period_html = f"""
-                <div class="period-text">
-                    <div class="period-label">From:</div>
-                    <div class="period-val">{min_fmt}</div>
-                    <div class="period-label">To:</div>
-                    <div class="period-val">{max_fmt}</div>
-                </div>
-                """
-                st.markdown(period_html, unsafe_allow_html=True)
-            else:
+        # Card 1: File Picker
+        with col1:
+            with st.container(border=True):
                 st.markdown(
-                    '<div class="period-text" style="color: #888888;">No statements uploaded</div>',
+                    "<div style='font-size: 1rem; font-weight: 500; margin-bottom: 0.5rem;'>Upload a PDF statement</div>",
+                    unsafe_allow_html=True,
+                )
+                uploaded_file = st.file_uploader(
+                    "Upload a PDF statement",
+                    type=["pdf"],
+                    label_visibility="collapsed",
+                    key="pdf_uploader",
+                )
+                process_btn = st.button(
+                    "Process Statement", type="primary", use_container_width=True
+                )
+                if process_btn:
+                    self.handle_file_upload(uploaded_file)
+                    st.rerun()
+
+        # Card 2: Total Transactions Uploaded
+        with col2:
+            with st.container(border=True):
+                st.markdown(
+                    f"""
+                    <div class="metric-card-container">
+                        <div style="font-size: 1.1rem; font-weight: 500; color: #A0A0A0;">Total transactions uploaded</div>
+                        <div class="metric-large">{total_txns}</div>
+                    </div>
+                    """,
                     unsafe_allow_html=True,
                 )
 
-    # Processing Action
-    if process_clicked:
-        if uploaded_file is None:
-            st.error("Please select a PDF file before processing.")
-        else:
-            temp_file_path = None
-            try:
-                with st.spinner("Processing statement..."):
-                    # Save uploaded file to temp path
-                    with tempfile.NamedTemporaryFile(
-                        delete=False, suffix=".pdf"
-                    ) as temp_file:
-                        temp_file.write(uploaded_file.getvalue())
-                        temp_file_path = temp_file.name
+        # Card 3: Statement Period Uploaded
+        with col3:
+            with st.container(border=True):
+                if not has_logs or df.empty or "trans_date" not in df.columns:
+                    st.markdown(
+                        """
+                        <div class="metric-card-container">
+                            <div style="font-size: 1.1rem; font-weight: 500; color: #A0A0A0; margin-bottom: 0.5rem;">Statement period uploaded</div>
+                            <div style="font-size: 1.2rem; color: #FFFFFF; font-weight: 600;">No statements uploaded</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    min_date = df["trans_date"].min()
+                    max_date = df["trans_date"].max()
+                    st.markdown(
+                        f"""
+                        <div class="metric-card-container">
+                            <div style="font-size: 1.1rem; font-weight: 500; color: #A0A0A0; margin-bottom: 0.5rem;">Statement period uploaded</div>
+                            <div>
+                                <span class="period-label">From: </span><span class="period-val">{min_date}</span>
+                            </div>
+                            <div>
+                                <span class="period-label">To: </span><span class="period-val">{max_date}</span>
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
 
-                    # Execute PDF parser
-                    parse_statement(temp_file_path)
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.subheader("Transactions uploaded")
 
-                st.success("Statement processed successfully!")
+        # Explicit 10-Row Table Pagination Logic
+        items_per_page = 10
+        total_rows = len(df)
+        total_pages = math.ceil(total_rows / items_per_page) if total_rows > 0 else 1
+
+        if "current_page" not in st.session_state:
+            st.session_state["current_page"] = 1
+
+        if st.session_state["current_page"] > total_pages:
+            st.session_state["current_page"] = total_pages
+        if st.session_state["current_page"] < 1:
+            st.session_state["current_page"] = 1
+
+        current_page = st.session_state["current_page"]
+        start_idx = (current_page - 1) * items_per_page
+        end_idx = start_idx + items_per_page
+        sliced_df = df.iloc[start_idx:end_idx]
+
+        st.dataframe(sliced_df, use_container_width=True)
+
+        col_prev, col_info, col_next = st.columns([1, 2, 1])
+
+        with col_prev:
+            if st.button(
+                "Previous Page",
+                disabled=(current_page <= 1),
+                use_container_width=True,
+                key="btn_prev",
+            ):
+                st.session_state["current_page"] -= 1
                 st.rerun()
-            except Exception as err:
-                st.error(f"Error processing statement: {str(err)}")
-            finally:
-                if temp_file_path and os.path.exists(temp_file_path):
-                    os.remove(temp_file_path)
 
-    st.markdown("---")
+        with col_info:
+            st.markdown(
+                f"<div style='text-align: center; padding-top: 0.4rem; font-weight: 600; font-size: 1rem;'>Page {current_page} of {total_pages}</div>",
+                unsafe_allow_html=True,
+            )
 
-    # Grid Section Header & Paginated Dataframe
-    st.subheader("Transactions uploaded")
-    df_txns = db_repo.get_transactions_dataframe()
+        with col_next:
+            if st.button(
+                "Next Page",
+                disabled=(current_page >= total_pages),
+                use_container_width=True,
+                key="btn_next",
+            ):
+                st.session_state["current_page"] += 1
+                st.rerun()
 
-    # Fitted precisely for 10 rows view (~390px height)
-    st.dataframe(
-        df_txns,
-        height=390,
-        use_container_width=True,
-        hide_index=True,
-    )
+    def run(self) -> None:
+        """Main execution entry point for the Streamlit application."""
+        st.set_page_config(
+            page_title="Personal Expense Tracker",
+            layout="wide",
+            initial_sidebar_state="expanded",
+        )
+        self.inject_custom_css()
+        selected_page = self.render_sidebar()
 
-
-def main() -> None:
-    """Application entry point."""
-    st.set_page_config(
-        page_title="Statement Ingestion & Operational Dashboard",
-        page_icon="💳",
-        layout="wide",
-        initial_sidebar_state="expanded",
-    )
-
-    inject_custom_css()
-    active_page = render_sidebar()
-
-    db_repo = DatabaseRepository()
-
-    if active_page == "Upload":
-        render_upload_view(db_repo)
-    elif active_page == "Dashboard":
-        st.title("Dashboard")
-        st.info("Dashboard overview is under construction.")
-    elif active_page == "Charts":
-        st.title("Charts")
-        st.info("Analytics and charts are under construction.")
+        if selected_page == "Upload":
+            self.render_upload_view()
+        elif selected_page == "Dashboard":
+            st.title("Dashboard")
+            st.info("Dashboard module under construction.")
+        elif selected_page == "Charts":
+            st.title("Charts")
+            st.info("Charts module under construction.")
 
 
 if __name__ == "__main__":
-    main()
+    app = UIApp()
+    app.run()
