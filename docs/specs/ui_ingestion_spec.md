@@ -1,7 +1,7 @@
 # Specification: Statement Ingestion & Operational Dashboard UI
 
 ## 1. Objective
-Build a functional, intuitive, and responsive Streamlit web application (`src/app.py`) that serves as a local operational interface. The interface allows users to select/upload downloadable PDF credit card statements, execute the parser and auto-categorisation engine (`src/pdf_parser.py`), ingest transactions into SQLite (`db/personal-expense-tracker.db`), and inspect transaction grids and aggregate spending metrics.
+Build a modular, multi-page ready Streamlit web application (`src/app.py`) featuring single-word sidebar navigation ("Dashboard", "Upload", "Charts"). The initial implementation focuses on the **Upload** view, allowing users to select/upload downloadable PDF credit card statements directly on the main page, trigger the core parser (`src/pdf_parser.py`), ingest transactions into SQLite (`db/personal-expense-tracker.db`), and inspect a full raw transaction preview grid.
 
 ## 2. Technical Stack & Dependencies
 - **Language**: Python 3.x
@@ -15,20 +15,26 @@ Build a functional, intuitive, and responsive Streamlit web application (`src/ap
 
 ---
 
-## 3. UI Design Principles & Responsive Layout
+## 3. UI Design Principles & Navigation Structure
 
-### 3.1 Responsiveness & Usability
-- **Mobile & Desktop Compatibility**: Set `st.set_page_config(layout="wide")` to ensure components degrade gracefully and stack vertically on mobile device screens.
-- **Functional & Intuitive**: Prioritize clear navigation, immediate visual feedback, clear data scannability, and high-contrast typography over custom decorative styling.
+### 3.1 Sidebar Navigation
+- **Sidebar Role**: Dedicated exclusively to application navigation (`st.sidebar.radio` or `st.navigation`).
+- **Navigation Options**:
+  1. `Dashboard` (Placeholder view for future category averages & statement overviews)
+  2. `Upload` (Active target view for statement selection, batch ingestion, and raw grid)
+  3. `Charts` (Placeholder view for future real-time interactive charting and filtering)
 
-### 3.2 Sidebar / Control Panel
-- **File Selection**: `st.file_uploader` accepting `.pdf` files.
-- **Ingestion Trigger**: A prominent "Process Statement" action button (`st.button`).
-- **Processing Status**: Display a visual spinner during processing (`st.spinner`) and toast alerts for success/failure.
+### 3.2 Upload View Screen Layout
+- **Page Title**: `st.title("Upload")`
+- **Subtitle**: `st.markdown("Select PDF credit card statement to process into anonymised transactions to be stored and used for budget planning.")`
+- **Main Page Ingestion Section**:
+  - File uploader widget: `st.file_uploader("Select PDF Statement", type=["pdf"])`
+  - Processing button: `st.button("Process Statement", type="primary")`
+  - Status Feedback: Visual spinner (`st.spinner`) during processing and toast/alert notification upon completion (`"Statement processed successfully!"`).
 
-### 3.3 Main Data Area & Database Alignment
+### 3.3 Main Data Area (Raw Transaction Preview)
 1. **Schema & Query Strategy**:
-   - `src/app.py` queries transactions by joining normalized relational tables created by `src/pdf_parser.py`:
+   - `src/app.py` queries raw transactions directly from the normalized schema:
      ```sql
      SELECT 
          t.trans_date, 
@@ -41,21 +47,12 @@ Build a functional, intuitive, and responsive Streamlit web application (`src/ap
      FROM "transaction" t
      LEFT JOIN category c ON t.category_id = c.id
      LEFT JOIN currency curr ON t.purchase_currency_id = curr.id
+     ORDER BY t.trans_date DESC, t.id DESC
      ```
-   - Categories dropdown is queried directly from `SELECT category_name FROM category ORDER BY category_name`.
-
-2. **Summary Metrics Cards (`st.metric`)**:
-   - Total Spend (Formatted in AUD currency: `$X,XXX.XX`).
-   - Total Transaction Count.
-   - Top Spending Category.
-
-3. **Real-Time Transaction Grid (`st.dataframe`)**:
-   - Displays parsed transactions queried directly from `personal-expense-tracker.db`.
+2. **Raw Transaction Grid (`st.dataframe`)**:
+   - Displays all ingested transactions in a paginated/scrollable table.
+   - Filtering and search controls are explicitly removed from this view (reserved for the `Charts` view).
    - Columns: `trans_date`, `merchant`, `category_name`, `txn_amount`, `purchase_currency`, `hkd_amount`, `fx_rate`.
-
-4. **Filtering Controls**:
-   - Category Filter: Dropdown selector (`st.selectbox`) populated dynamically from the `category` table.
-   - Search Bar: Text input (`st.text_input`) filtering the `merchant` column using SQL `LIKE`.
 
 ---
 
@@ -75,44 +72,39 @@ Build a functional, intuitive, and responsive Streamlit web application (`src/ap
 
 ### Story 1
 **Target Epic**: `Statement Ingestion UI` (New Epic)  
-**Title**: `[ UI | PY | DB ] PDF Statement Selector & Batch Ingestion`
+**Title**: `[ UI | PY | DB ] Main-Page PDF Statement Selector & Batch Ingestion`
 
 **Description**:
 AS A Personal Tracker User  
-I WANT A local, responsive web interface to select downloadable PDF credit card statements and trigger parsing  
-SO THAT I can ingest transaction records into my SQLite database without running terminal commands.  
+I WANT TO select downloadable PDF credit card statements directly on the Upload screen  
+SO THAT I can ingest transaction records into my SQLite database without using sidebar form inputs.  
 
 Acceptance Criteria:
 
-Scenario 1: Successful PDF Selection and Processing  
-GIVEN the Streamlit dashboard is running locally  
-WHEN I select a valid PDF credit card statement and click "Process Statement"  
-THEN `parse_statement()` executes, transaction records are stored in `personal-expense-tracker.db`, and a success alert is displayed.  
+Scenario 1: Main-Page PDF Ingestion  
+GIVEN the Streamlit app is on the "Upload" screen  
+WHEN I upload a valid PDF statement and click "Process Statement"  
+THEN `parse_statement()` executes, records populate `personal-expense-tracker.db`, and `"Statement processed successfully!"` is displayed.  
 
 Scenario 2: Invalid File Error Handling  
-GIVEN the Streamlit dashboard is open  
-WHEN I attempt to process an invalid or corrupted file  
-THEN the application halts processing gracefully and displays a clear error message on the UI.  
+GIVEN the Streamlit app is on the "Upload" screen  
+WHEN I attempt to process an invalid file  
+THEN the application halts processing gracefully and displays a clear error message.  
 
 ---
 
 ### Story 2
 **Target Epic**: `PET-4` (`Tabular UI`)  
-**Title**: `[ UI | PY | DB ] Real-Time Ingestion Preview & Transaction Grid`
+**Title**: `[ UI | PY | DB ] Real-Time Ingestion Preview & Raw Transaction Grid`
 
 **Description**:
 AS A Personal Tracker User  
-I WANT TO view summary metrics and an interactive transaction grid immediately following statement ingestion  
-SO THAT I can instantly verify categorisation accuracy and spending totals on desktop or mobile.  
+I WANT TO view a raw transaction data grid on the Upload screen immediately following statement processing  
+SO THAT I can verify that all transactions were cleanly extracted and stored in SQLite.  
 
 Acceptance Criteria:
 
-Scenario 1: Real-Time Grid and Metric Refresh  
-GIVEN a PDF statement has just been processed and ingested  
+Scenario 1: Real-Time Raw Grid Refresh  
+GIVEN a PDF statement has just been processed  
 WHEN the ingestion completes  
-THEN the dashboard automatically updates to display Total Spend, Transaction Count, Top Category, and populates the transaction table from SQLite.  
-
-Scenario 2: Category Filtering  
-GIVEN parsed transactions are displayed in the data grid  
-WHEN I select a specific category from the dropdown filter  
-THEN the table dynamically updates to show only transactions matching that category.
+THEN the Upload screen automatically updates to display all historical transactions from SQLite in a raw data grid.
