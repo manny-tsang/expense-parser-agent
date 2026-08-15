@@ -79,8 +79,6 @@ The resulting dataframe/CSV must contain the following exact header columns in t
 
 ### 8.1 Entity-Relationship Structure
 
-### 8.1 Entity-Relationship Structure
-
 CREATE TABLE IF NOT EXISTS "category" (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     category_name TEXT UNIQUE
@@ -115,12 +113,23 @@ CREATE TABLE IF NOT EXISTS "transaction" (
     FOREIGN KEY(category_id) REFERENCES "category"(id)
 );
 
-### 8.2 Exclusion Filter Rules
+CREATE TABLE IF NOT EXISTS "statement_log" (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    filename TEXT UNIQUE NOT NULL,
+    processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+### 8.2 Duplicate Statement Prevention Logic
+- Before parsing or inserting transactions from a statement file, check if the baseline filename (e.g., 2026-01-08_Statement.pdf) exists in statement_log.
+- If the filename exists in statement_log, raise a ValueError with "Statement '<filename>' has already been processed.".
+- If it does not exist, insert the filename into statement_log upon successful ingestion.
+
+### 8.3 Exclusion Filter Rules
 Before inserting into the database, the parser MUST filter out and discard any transaction where the `merchant` string contains:
 - `IFS PAYMENT`
 - `PAYMENT - THANK YOU`
 
-### 8.3 Auto-Categorisation Engine Rules
+### 8.4 Auto-Categorisation Engine Rules
 During ingestion, the parser must evaluate the `merchant` string against the following dictionary rules to determine `category_id`:
 
 - **Automotive**: `MEEK AUTOMOTIVE`, `SHANNONS`, `SUPERCHEAP AUTO`, `AUTOMOTIVE`, `MECHANIC`
@@ -137,7 +146,7 @@ During ingestion, the parser must evaluate the `merchant` string against the fol
 - **Utilities**: `TELSTRA`, `OPTUS`, `ENERGY`, `WATER`, `AANET`, `AGL`, `ORIGIN`
 - **Fallback**: Any unmatched merchant must be assigned to `Uncategorised`.
 
-### 8.3 Foreign Key Resolution Logic
+### 8.5 Foreign Key Resolution Logic
 1. For `category_id`: Query `category` table for `category_name`. If not found, insert and retrieve new `id`.
 2. For `purchase_currency_id`: Query `currency` table for `currency_code` (e.g., `AUD`). If not found, insert and retrieve new `id`.
 3. For `country_id`: Query `country` table for `country_code` (e.g., `AUS`). If not found, insert and retrieve new `id`. If null/empty, store `NULL`.
