@@ -47,8 +47,9 @@ class HKStatementParser:
 
     DB_PATH = os.path.join("db", "personal-expense-tracker.db")
 
-    def __init__(self) -> None:
-        pass
+    def __init__(self, db_path: Optional[str] = None) -> None:
+        if db_path:
+            self.DB_PATH = db_path
 
     def process(self, pdf_path: str, output_csv_path: Optional[str] = None) -> pd.DataFrame:
         """Main pipeline for parsing PDF statement, persisting to DB, and outputting DataFrame/CSV."""
@@ -158,7 +159,7 @@ class HKStatementParser:
 
         df = pd.DataFrame(formatted_rows, columns=df_columns)
 
-        if output_csv_path:
+        if output_csv_path and not output_csv_path.endswith(".db"):
             out_dir = os.path.dirname(output_csv_path)
             if out_dir:
                 os.makedirs(out_dir, exist_ok=True)
@@ -444,7 +445,11 @@ class HKStatementParser:
         return cursor.lastrowid
 
 
-def parse_statement(pdf_path: str, output_csv_path: Optional[str] = None) -> pd.DataFrame:
+def parse_statement(
+    pdf_path: str, 
+    db_path: str = "db/personal-expense-tracker.db", 
+    output_csv_path: Optional[str] = None
+) -> pd.DataFrame:
     """Entry point function to parse HK Credit Card PDF statements."""
     parser = HKStatementParser()
     return parser.process(pdf_path, output_csv_path)

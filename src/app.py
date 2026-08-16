@@ -281,10 +281,7 @@ class StatementApp:
 
                         result = parse_statement(tmp_path, DB_PATH)
                         if isinstance(result, pd.DataFrame) and not result.empty:
-                            st.success("Statement processed successfully!")
-                            st.rerun()
-                        elif isinstance(result, bool) and result:
-                            st.success("Statement processed successfully!")
+                            st.session_state["upload_success"] = True
                             st.rerun()
                         else:
                             st.error("Error processing statement. Invalid or duplicate format.")
@@ -295,6 +292,10 @@ class StatementApp:
                             os.remove(tmp_path)
             else:
                 st.warning("Please select a PDF file to process.")
+
+        # Show success banner if flag exists, then clear it
+        if st.session_state.pop("upload_success", False):
+            st.success("Statement processed successfully!")
 
         st.write("")
         st.subheader("Transactions uploaded")
