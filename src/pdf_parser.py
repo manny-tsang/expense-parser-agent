@@ -325,7 +325,7 @@ class HKStatementParser:
                 CREATE TABLE IF NOT EXISTS "currency" (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     currency_country_id INTEGER,
-                    currency_code TEXT UNIQUE,
+                    currency_code TEXT,
                     FOREIGN KEY(currency_country_id) REFERENCES "country"(id)
                 );
             """)
@@ -413,8 +413,11 @@ class HKStatementParser:
         row = cursor.fetchone()
         if row:
             return row[0]
-        cursor.execute('INSERT INTO "country" (country_name, country_code) VALUES (?, ?)', (country_code, country_code))
-        return cursor.lastrowid
+        # Use country_code as fallback name if not already in DB
+        cursor.execute('INSERT OR IGNORE INTO "country" (country_name, country_code) VALUES (?, ?)', (country_code, country_code))
+        cursor.execute('SELECT id FROM "country" WHERE country_code = ?', (country_code,))
+        row = cursor.fetchone()
+        return row[0] if row else None
 
     @staticmethod
     def _get_or_create_currency(
@@ -422,6 +425,14 @@ class HKStatementParser:
     ) -> Optional[int]:
         if not currency_code:
             return None
+        if country_id:
+            cursor.execute(
+                'SELECT id FROM "currency" WHERE currency_code = ? AND currency_country_id = ?',
+                (currency_code, country_id)
+            )
+            row = cursor.fetchone()
+            if row:
+                return row[0]
         cursor.execute('SELECT id FROM "currency" WHERE currency_code = ?', (currency_code,))
         row = cursor.fetchone()
         if row:

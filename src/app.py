@@ -279,14 +279,15 @@ class StatementApp:
                             tmp_file.write(uploaded_file.getvalue())
                             tmp_path = tmp_file.name
 
-                        success = parse_statement(tmp_path, DB_PATH)
-                        if success:
+                        result = parse_statement(tmp_path, DB_PATH)
+                        if isinstance(result, pd.DataFrame) and not result.empty:
+                            st.success("Statement processed successfully!")
+                            st.rerun()
+                        elif isinstance(result, bool) and result:
                             st.success("Statement processed successfully!")
                             st.rerun()
                         else:
-                            st.error(
-                                "Error processing statement. Invalid or duplicate format."
-                            )
+                            st.error("Error processing statement. Invalid or duplicate format.")
                     except Exception as e:
                         st.error(f"Error processing statement: {e}")
                     finally:
