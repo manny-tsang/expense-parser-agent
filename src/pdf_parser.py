@@ -20,31 +20,6 @@ class HKStatementParser:
         "THB", "KRW", "TWD", "MYR", "IDR", "PHP", "VND", "INR", "CHF"
     }
 
-    CATEGORIES_MAP = {
-        "Automotive": ["MEEK AUTOMOTIVE", "SHANNONS", "SUPERCHEAP AUTO", "AUTOMOTIVE", "MECHANIC"],
-        "Bank Fees": ["DCC FEE", "FOREIGN TRANSACTION FEE", "LATE FEE", "INTEREST CHARGE"],
-        "Dining & Cafes": [
-            "24 YORK", "BARE WITNESS", "BAMBOO SUSHI", "BY V BAR", "CONCORDIA CLUB", "CHARGRILL OLYMPICPARK",
-            "EL JANNAH", "GYUKATSU KYOTO", "HASHI SUSHI", "HIN TEE CHOO", "HOONSIKDANG", "KFC", "MESSIN",
-            "SIMPLE SIMONS GELATO", "SQ *ANGUS MARRICKVILLE", "SQ *BELLA BACIATA", "SQ *GOOD FELLA",
-            "SQ *GUMPTION", "SQ *HEADLANDS", "SQ *KABUL SOCIAL", "SQ *LAB RHODES", "SQ *MAMUKI",
-            "SQ *THE BERLIN FOOD", "SQ *YUMYUM", "THE LUCKY PLACE", "THE MAJOR HABERFIELD", "THE LONDON HOTEL",
-            "UNCLE TETSU", "GELATO", "GYG", "CAFE", "RESTAURANT", "COFFEE", "BAKERY", "PATISSERIE", "MCDONALD"
-        ],
-        "Fuel": ["BP ", "BP CONNECT", "SHELL", "AMPOL", "7-ELEVEN", "UNITED PETROLEUM", "CALTEX"],
-        "Groceries": ["WOOLWORTHS", "COLES", "ALDI", "PETBARN", "ZETCITI", "SUPERMARKET", "IGAMARKET", "GROCER"],
-        "Haircut": ["SQ *STUDIO NO. 4", "BARBER", "HAIR", "SALON"],
-        "Health & Fitness": [
-            "ADRENALINE HQ", "CHEMIST WAREHOUSE", "EZI*DYNASTY", "KAPNOR", "GYM", "PHARMACY",
-            "CHEMIST", "HEALTH", "FITNESS"
-        ],
-        "Medical": ["SHIM SZE EIN", "DOCTOR", "CLINIC", "DENTAL", "MEDICAL"],
-        "Shopping & Retail": ["AMAZON", "AQUILA", "KIEHLS", "REBEL", "UNIQLO", "BUNNINGS", "KMART", "TARGET", "APPLE"],
-        "Subscriptions": ["CANVA", "NETFLIX", "PDF.NET", "SPOTIFY", "APPLE.COM/BILL", "YOUTUBE", "PRIME", "DISNEY"],
-        "Transport": ["OPAL", "PARKING", "UBER", "TAXI", "TRANSPORT", "TRANSIT"],
-        "Utilities": ["TELSTRA", "OPTUS", "ENERGY", "WATER", "AANET", "AGL", "ORIGIN"]
-    }
-
     DB_PATH = os.path.join("db", "personal-expense-tracker.db")
 
     def __init__(self, db_path: Optional[str] = None) -> None:
@@ -224,14 +199,24 @@ class HKStatementParser:
         return f"${val:,.2f}"
 
     @staticmethod
-    def _categorise_merchant(merchant: str) -> str:
-        """Categorise merchant using keyword mapping."""
-        merchant_upper = merchant.upper()
-        for category, keywords in HKStatementParser.CATEGORIES_MAP.items():
-            for kw in keywords:
-                if kw in merchant_upper:
-                    return category
-        return "Uncategorised"
+    def _categorise_merchant(cursor: sqlite3.Cursor, merchant_name: str) -> int:
+        """Categorise merchant using SQLite merchant_mapping table lookups."""
+        cursor.execute(
+            """
+            SELECT category_id
+            FROM "merchant_mapping"
+            WHERE ? LIKE '%' || pattern || '%'
+               OR UPPER(?) LIKE '%' || UPPER(pattern) || '%'
+            ORDER BY LENGTH(pattern) DESC, id ASC
+            LIMIT 1
+            """,
+            (merchant_name, merchant_name)
+        )
+        row = cursor.fetchone()
+        if row:
+            return row[0]
+
+        return HKStatementParser._get_or_create_category(cursor, "Uncategorised")
 
     @staticmethod
     def _parse_transaction_rest(
@@ -298,7 +283,45 @@ class HKStatementParser:
             "fx_rate": pending_txn["fx_rate"]
         }
 
-    def _init_db_and_check_log(self, filename: str) -> None:
+    @staticmethod
+    def _seed_default_mappings(cursor: sqlite3.Cursor) -> None:
+        """Populate initial merchant mapping rules if mapping table is empty."""
+        default_mappings = {
+            "Automotive": ["MEEK AUTOMOTIVE", "SHANNONS", "SUPERCHEAP AUTO", "AUTOMOTIVE", "MECHANIC"],
+            "Bank Fees": ["DCC FEE", "FOREIGN TRANSACTION FEE", "LATE FEE", "INTEREST CHARGE"],
+            "Dining & Cafes": [
+                "24 YORK", "BARE WITNESS", "BAMBOO SUSHI", "BY V BAR", "CONCORDIA CLUB", "CHARGRILL OLYMPICPARK",
+                "EL JANNAH", "GYUKATSU KYOTO", "HASHI SUSHI", "HIN TEE CHOO", "HOONSIKDANG", "KFC", "MESSIN",
+                "SIMPLE SIMONS GELATO", "SQ *ANGUS MARRICKVILLE", "SQ *BELLA BACIATA", "SQ *GOOD FELLA",
+                "SQ *GUMPTION", "SQ *HEADLANDS", "SQ *KABUL SOCIAL", "SQ *LAB RHODES", "SQ *MAMUKI",
+                "SQ *THE BERLIN FOOD", "SQ *YUMYUM", "THE LUCKY PLACE", "THE MAJOR HABERFIELD", "THE LONDON HOTEL",
+                "UNCLE TETSU", "GELATO", "GYG", "CAFE", "RESTAURANT", "COFFEE", "BAKERY", "PATISSERIE", "MCDONALD"
+            ],
+            "Fuel": ["BP ", "BP CONNECT", "SHELL", "AMPOL", "7-ELEVEN", "UNITED PETROLEUM", "CALTEX"],
+            "Groceries": ["WOOLWORTHS", "COLES", "ALDI", "PETBARN", "ZETCITI", "SUPERMARKET", "IGAMARKET", "GROCER"],
+            "Haircut": ["SQ *STUDIO NO. 4", "BARBER", "HAIR", "SALON"],
+            "Health & Fitness": [
+                "ADRENALINE HQ", "CHEMIST WAREHOUSE", "EZI*DYNASTY", "KAPNOR", "GYM", "PHARMACY",
+                "CHEMIST", "HEALTH", "FITNESS"
+            ],
+            "Medical": ["SHIM SZE EIN", "DOCTOR", "CLINIC", "DENTAL", "MEDICAL"],
+            "Shopping & Retail": ["AMAZON", "AQUILA", "KIEHLS", "REBEL", "UNIQLO", "BUNNINGS", "KMART", "TARGET", "APPLE"],
+            "Subscriptions": ["CANVA", "NETFLIX", "PDF.NET", "SPOTIFY", "APPLE.COM/BILL", "YOUTUBE", "PRIME", "DISNEY"],
+            "Transport": ["OPAL", "PARKING", "UBER", "TAXI", "TRANSPORT", "TRANSIT"],
+            "Utilities": ["TELSTRA", "OPTUS", "ENERGY", "WATER", "AANET", "AGL", "ORIGIN"]
+        }
+
+        for cat_name, patterns in default_mappings.items():
+            cat_id = HKStatementParser._get_or_create_category(cursor, cat_name)
+            for pattern in patterns:
+                cursor.execute(
+                    'INSERT OR IGNORE INTO "merchant_mapping" (pattern, category_id) VALUES (?, ?)',
+                    (pattern, cat_id)
+                )
+
+        HKStatementParser._get_or_create_category(cursor, "Uncategorised")
+
+    def _init_db_and_check_log(self, filename: Optional[str] = None) -> None:
         """Initialize database schema and check statement duplicate log."""
         db_dir = os.path.dirname(self.DB_PATH)
         if db_dir:
@@ -357,9 +380,27 @@ class HKStatementParser:
                 );
             """)
 
-            cursor.execute('SELECT id FROM "statement_log" WHERE filename = ?', (filename,))
-            if cursor.fetchone() is not None:
-                raise ValueError(f"Statement '{filename}' has already been processed.")
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS "merchant_mapping" (
+                    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+                    "pattern" TEXT UNIQUE NOT NULL,
+                    "category_id" INTEGER NOT NULL,
+                    "created_at" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY("category_id") REFERENCES "category"("id")
+                );
+            """)
+
+            cursor.execute('SELECT COUNT(*) FROM "merchant_mapping"')
+            count_row = cursor.fetchone()
+            if count_row and count_row[0] == 0:
+                self._seed_default_mappings(cursor)
+
+            if filename:
+                cursor.execute('SELECT id FROM "statement_log" WHERE filename = ?', (filename,))
+                if cursor.fetchone() is not None:
+                    raise ValueError(f"Statement '{filename}' has already been processed.")
+
+            conn.commit()
 
     def _persist_to_sqlite(self, raw_txns: List[Dict[str, Any]], filename: str) -> None:
         """Persist structured transactions and update log in SQLite."""
@@ -371,8 +412,7 @@ class HKStatementParser:
                 if any(ex in txn["merchant"].upper() for ex in ["IFS PAYMENT", "PAYMENT - THANK YOU"]):
                     continue
 
-                cat_name = self._categorise_merchant(txn["merchant"])
-                cat_id = self._get_or_create_category(cursor, cat_name)
+                cat_id = self._categorise_merchant(cursor, txn["merchant"])
                 country_id = self._get_or_create_country(cursor, txn["country"])
                 currency_id = self._get_or_create_currency(cursor, txn["purchase_currency"], country_id)
 
@@ -414,7 +454,6 @@ class HKStatementParser:
         row = cursor.fetchone()
         if row:
             return row[0]
-        # Use country_code as fallback name if not already in DB
         cursor.execute('INSERT OR IGNORE INTO "country" (country_name, country_code) VALUES (?, ?)', (country_code, country_code))
         cursor.execute('SELECT id FROM "country" WHERE country_code = ?', (country_code,))
         row = cursor.fetchone()
@@ -445,11 +484,134 @@ class HKStatementParser:
         return cursor.lastrowid
 
 
+class DatabaseRepository:
+    """Database repository layer for managing transactions, categories, and merchant rules."""
+
+    def __init__(self, db_path: str = HKStatementParser.DB_PATH) -> None:
+        self.db_path = db_path
+
+    def get_connection(self) -> sqlite3.Connection:
+        """Create and return a connection to the SQLite database."""
+        db_dir = os.path.dirname(self.db_path)
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
+        return sqlite3.connect(self.db_path)
+
+    def init_db(self) -> None:
+        """Initialize schema and seed initial database tables."""
+        parser = HKStatementParser(db_path=self.db_path)
+        parser._init_db_and_check_log()
+
+    def get_transactions_dataframe(self) -> pd.DataFrame:
+        """Fetch all transactions with category and currency details."""
+        if not os.path.exists(self.db_path):
+            return pd.DataFrame(
+                columns=[
+                    "id", "trans_date", "merchant", "category_name",
+                    "txn_amount", "purchase_currency", "hkd_amount", "fx_rate", "category_id"
+                ]
+            )
+        try:
+            with self.get_connection() as conn:
+                query = """
+                SELECT 
+                    t.id,
+                    t.trans_date, 
+                    t.merchant, 
+                    c.category_name, 
+                    t.txn_amount, 
+                    curr.currency_code AS purchase_currency, 
+                    t.hkd_amount, 
+                    t.fx_rate,
+                    t.category_id
+                FROM "transaction" t
+                LEFT JOIN category c ON t.category_id = c.id
+                LEFT JOIN currency curr ON t.purchase_currency_id = curr.id
+                ORDER BY t.trans_date DESC, t.id DESC
+                """
+                return pd.read_sql_query(query, conn)
+        except Exception:
+            return pd.DataFrame(
+                columns=[
+                    "id", "trans_date", "merchant", "category_name",
+                    "txn_amount", "purchase_currency", "hkd_amount", "fx_rate", "category_id"
+                ]
+            )
+
+    def get_categories(self) -> pd.DataFrame:
+        """Fetch all existing categories ordered by category_name."""
+        if not os.path.exists(self.db_path):
+            return pd.DataFrame(columns=["id", "category_name"])
+        try:
+            with self.get_connection() as conn:
+                query = 'SELECT id, category_name FROM "category" ORDER BY category_name ASC'
+                return pd.read_sql_query(query, conn)
+        except Exception:
+            return pd.DataFrame(columns=["id", "category_name"])
+
+    def get_uncategorised_merchants(self) -> pd.DataFrame:
+        """Fetch distinct merchants assigned to 'Uncategorised' with transaction counts."""
+        if not os.path.exists(self.db_path):
+            return pd.DataFrame(columns=["merchant", "transaction_count"])
+        try:
+            with self.get_connection() as conn:
+                query = """
+                SELECT t.merchant, COUNT(t.id) AS transaction_count
+                FROM "transaction" t
+                JOIN category c ON t.category_id = c.id
+                WHERE c.category_name = 'Uncategorised'
+                GROUP BY t.merchant
+                ORDER BY transaction_count DESC, t.merchant ASC
+                """
+                return pd.read_sql_query(query, conn)
+        except Exception:
+            return pd.DataFrame(columns=["merchant", "transaction_count"])
+
+    def add_merchant_mapping_rule(self, pattern: str, category_id: int) -> bool:
+        """Add a global merchant rule pattern and propagate to all matching existing transactions."""
+        if not pattern or not pattern.strip():
+            return False
+        clean_pattern = pattern.strip()
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    'INSERT OR REPLACE INTO "merchant_mapping" (pattern, category_id) VALUES (?, ?)',
+                    (clean_pattern, category_id)
+                )
+                cursor.execute(
+                    """
+                    UPDATE "transaction"
+                    SET category_id = ?
+                    WHERE UPPER(merchant) LIKE '%' || UPPER(?) || '%'
+                    """,
+                    (category_id, clean_pattern)
+                )
+                conn.commit()
+                return True
+        except Exception:
+            return False
+
+    def update_transaction_category(self, transaction_id: int, category_id: int) -> bool:
+        """Update category_id for an individual transaction without creating a global rule."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    'UPDATE "transaction" SET category_id = ? WHERE id = ?',
+                    (category_id, transaction_id)
+                )
+                conn.commit()
+                return True
+        except Exception:
+            return False
+
+
 def parse_statement(
     pdf_path: str, 
     db_path: str = "db/personal-expense-tracker.db", 
     output_csv_path: Optional[str] = None
 ) -> pd.DataFrame:
     """Entry point function to parse HK Credit Card PDF statements."""
-    parser = HKStatementParser()
+    parser = HKStatementParser(db_path=db_path)
     return parser.process(pdf_path, output_csv_path)
