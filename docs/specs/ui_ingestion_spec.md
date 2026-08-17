@@ -16,9 +16,6 @@ Build a modular, multi-page ready Streamlit web application (`src/app.py`) featu
 ---
 
 ## 3. UI Design Principles & Responsive Layout
-
-## 3. UI Design Principles & Responsive Layout
-
 ### 3.1 Sticky Header & Flex Height Equalization (CSS Injection)
 Inject strict CSS via `st.markdown("<style>...</style>", unsafe_allow_html=True)` to fix sidebar top margin offset, solid sticky header alignment, and equal card border stretching:
 
