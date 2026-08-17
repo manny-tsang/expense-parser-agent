@@ -1,6 +1,5 @@
 import math
 import os
-import re
 import sqlite3
 import tempfile
 from typing import Optional, Tuple
@@ -10,75 +9,143 @@ import streamlit as st
 from streamlit_option_menu import option_menu
 
 try:
-    from src.pdf_parser import parse_statement
+    from src.pdf_parser import DatabaseRepository, parse_statement
 except ImportError:
     try:
-        from pdf_parser import parse_statement
+        from pdf_parser import DatabaseRepository, parse_statement
     except ImportError:
 
-        def parse_statement(file_path: str, db_path: str) -> bool:
+        def parse_statement(file_path: str, db_path: str = "db/personal-expense-tracker.db") -> bool:
             return False
+
+        class DatabaseRepository:  # type: ignore
+            def __init__(self, db_path: str = "db/personal-expense-tracker.db") -> None:
+                self.db_path = db_path
+
+            def get_connection(self) -> sqlite3.Connection:
+                os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+                return sqlite3.connect(self.db_path)
+
+            def get_transactions_dataframe(self) -> pd.DataFrame:
+                if not os.path.exists(self.db_path):
+                    return pd.DataFrame(
+                        columns=[
+                            "id",
+                            "trans_date",
+                            "merchant",
+                            "category_name",
+                            "txn_amount",
+                            "purchase_currency",
+                            "hkd_amount",
+                            "fx_rate",
+                            "category_id",
+                        ]
+                    )
+                try:
+                    with self.get_connection() as conn:
+                        query = """
+                        SELECT 
+                            t.id,
+                            t.trans_date, 
+                            t.merchant, 
+                            c.category_name, 
+                            t.txn_amount, 
+                            curr.currency_code AS purchase_currency, 
+                            t.hkd_amount, 
+                            t.fx_rate,
+                            t.category_id
+                        FROM "transaction" t
+                        LEFT JOIN category c ON t.category_id = c.id
+                        LEFT JOIN currency curr ON t.purchase_currency_id = curr.id
+                        ORDER BY t.trans_date DESC, t.id DESC
+                        """
+                        return pd.read_sql_query(query, conn)
+                except Exception:
+                    return pd.DataFrame(
+                        columns=[
+                            "id",
+                            "trans_date",
+                            "merchant",
+                            "category_name",
+                            "txn_amount",
+                            "purchase_currency",
+                            "hkd_amount",
+                            "fx_rate",
+                            "category_id",
+                        ]
+                    )
+
+            def get_categories(self) -> pd.DataFrame:
+                if not os.path.exists(self.db_path):
+                    return pd.DataFrame(columns=["id", "category_name"])
+                try:
+                    with self.get_connection() as conn:
+                        query = 'SELECT id, category_name FROM "category" ORDER BY category_name ASC'
+                        return pd.read_sql_query(query, conn)
+                except Exception:
+                    return pd.DataFrame(columns=["id", "category_name"])
+
+            def get_uncategorised_merchants(self) -> pd.DataFrame:
+                if not os.path.exists(self.db_path):
+                    return pd.DataFrame(columns=["merchant", "transaction_count"])
+                try:
+                    with self.get_connection() as conn:
+                        query = """
+                        SELECT t.merchant, COUNT(t.id) AS transaction_count
+                        FROM "transaction" t
+                        JOIN category c ON t.category_id = c.id
+                        WHERE c.category_name = 'Uncategorised'
+                        GROUP BY t.merchant
+                        ORDER BY transaction_count DESC, t.merchant ASC
+                        """
+                        return pd.read_sql_query(query, conn)
+                except Exception:
+                    return pd.DataFrame(columns=["merchant", "transaction_count"])
+
+            def add_merchant_mapping_rule(self, pattern: str, category_id: int) -> bool:
+                if not pattern or not pattern.strip():
+                    return False
+                clean_pattern = pattern.strip()
+                try:
+                    with self.get_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            'INSERT OR REPLACE INTO "merchant_mapping" (pattern, category_id) VALUES (?, ?)',
+                            (clean_pattern, category_id),
+                        )
+                        cursor.execute(
+                            """
+                            UPDATE "transaction"
+                            SET category_id = ?
+                            WHERE UPPER(merchant) LIKE '%' || UPPER(?) || '%'
+                            """,
+                            (category_id, clean_pattern),
+                        )
+                        conn.commit()
+                        return True
+                except Exception:
+                    return False
+
+            def update_transaction_category(self, transaction_id: int, category_id: int) -> bool:
+                try:
+                    with self.get_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            'UPDATE "transaction" SET category_id = ? WHERE id = ?',
+                            (category_id, transaction_id),
+                        )
+                        conn.commit()
+                        return True
+                except Exception:
+                    return False
 
 
 DB_PATH = "db/personal-expense-tracker.db"
 
 
-class DatabaseRepository:
-    def __init__(self, db_path: str = DB_PATH) -> None:
-        self.db_path = db_path
-
-    def get_connection(self) -> sqlite3.Connection:
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-        return sqlite3.connect(self.db_path)
-
-    def get_transactions_dataframe(self) -> pd.DataFrame:
-        if not os.path.exists(self.db_path):
-            return pd.DataFrame(
-                columns=[
-                    "trans_date",
-                    "merchant",
-                    "category_name",
-                    "txn_amount",
-                    "purchase_currency",
-                    "hkd_amount",
-                    "fx_rate",
-                ]
-            )
-        try:
-            with self.get_connection() as conn:
-                query = """
-                SELECT 
-                    t.trans_date, 
-                    t.merchant, 
-                    c.category_name, 
-                    t.txn_amount, 
-                    curr.currency_code AS purchase_currency, 
-                    t.hkd_amount, 
-                    t.fx_rate
-                FROM "transaction" t
-                LEFT JOIN category c ON t.category_id = c.id
-                LEFT JOIN currency curr ON t.purchase_currency_id = curr.id
-                ORDER BY t.trans_date DESC, t.id DESC
-                """
-                df = pd.read_sql_query(query, conn)
-                return df
-        except Exception:
-            return pd.DataFrame(
-                columns=[
-                    "trans_date",
-                    "merchant",
-                    "category_name",
-                    "txn_amount",
-                    "purchase_currency",
-                    "hkd_amount",
-                    "fx_rate",
-                ]
-            )
-
-
 class StatementApp:
     def __init__(self) -> None:
-        self.repo = DatabaseRepository()
+        self.repo = DatabaseRepository(DB_PATH)
 
     @staticmethod
     def inject_css() -> None:
@@ -106,14 +173,6 @@ class StatementApp:
             padding-left: 2rem !important;
         }
 
-        [data-testid="stHeader"]::before {
-            content: "Upload";
-            font-size: 1.75rem;
-            font-weight: 700;
-            color: #FFFFFF;
-            margin-right: auto;
-        }
-
         .block-container {
             padding-top: 4rem !important;
             padding-bottom: 1rem !important;
@@ -121,7 +180,7 @@ class StatementApp:
             padding-right: 2rem !important;
         }
 
-/* 3. Equal Column Height Match across all 3 Cards */
+        /* 3. Equal Column Height Match across all 3 Cards */
         div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
             display: flex !important;
         }
@@ -200,8 +259,8 @@ class StatementApp:
         with st.sidebar:
             selected = option_menu(
                 menu_title=None,
-                options=["Dashboard", "Upload", "Charts"],
-                icons=["house", "cloud-upload", "bar-chart"],
+                options=["Dashboard", "Upload", "Categorise", "Charts"],
+                icons=["house", "cloud-upload", "tag", "bar-chart"],
                 default_index=1,
                 styles={
                     "container": {
@@ -300,7 +359,14 @@ class StatementApp:
         st.write("")
         st.subheader("Transactions uploaded")
 
-        total_rows = len(df)
+        # Display transactions
+        display_cols = [
+            c for c in ["trans_date", "merchant", "category_name", "txn_amount", "purchase_currency", "hkd_amount", "fx_rate"]
+            if c in df.columns
+        ]
+        display_df = df[display_cols] if not df.empty and display_cols else df
+
+        total_rows = len(display_df)
         page_size = 10
         total_pages = max(1, math.ceil(total_rows / page_size))
 
@@ -316,7 +382,7 @@ class StatementApp:
         start_idx = (current_page - 1) * page_size
         end_idx = start_idx + page_size
 
-        page_df = df.iloc[start_idx:end_idx]
+        page_df = display_df.iloc[start_idx:end_idx]
         st.dataframe(page_df, use_container_width=True, hide_index=True)
 
         ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([1, 2, 1])
@@ -345,6 +411,103 @@ class StatementApp:
                 st.session_state["current_page"] += 1
                 st.rerun()
 
+    def render_categorise_page(self) -> None:
+        st.header("Merchant Category Rules")
+        st.markdown("Map uncategorised merchants to categories globally.")
+
+        uncat_df = self.repo.get_uncategorised_merchants()
+        categories_df = self.repo.get_categories()
+
+        st.subheader("Uncategorised Merchants")
+        if not uncat_df.empty:
+            st.dataframe(uncat_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("No uncategorised merchants found.")
+
+        st.markdown("---")
+        st.subheader("Global Merchant Mapping Rule")
+
+        uncat_list = uncat_df["merchant"].tolist() if not uncat_df.empty else []
+
+        col_rule1, col_rule2 = st.columns(2)
+
+        with col_rule1:
+            selected_merchant_option = st.selectbox(
+                "Select Uncategorised Merchant (or enter custom pattern below)",
+                options=["-- Custom Pattern --"] + uncat_list,
+            )
+            if selected_merchant_option == "-- Custom Pattern --":
+                pattern_input = st.text_input("Merchant Pattern / Keyword", value="")
+            else:
+                pattern_input = st.text_input("Merchant Pattern / Keyword", value=selected_merchant_option)
+
+        with col_rule2:
+            selected_cat_id: Optional[int] = None
+            if not categories_df.empty:
+                cat_options = dict(zip(categories_df["category_name"], categories_df["id"]))
+                selected_cat_name = st.selectbox("Target Category", options=list(cat_options.keys()))
+                selected_cat_id = cat_options[selected_cat_name]
+            else:
+                st.warning("No categories found in database.")
+
+        save_rule_btn = st.button("Save & Apply Rule", type="primary")
+
+        if save_rule_btn:
+            if not pattern_input or not pattern_input.strip():
+                st.error("Please enter a valid merchant pattern.")
+            elif selected_cat_id is None:
+                st.error("Please select a target category.")
+            else:
+                success = self.repo.add_merchant_mapping_rule(pattern_input.strip(), selected_cat_id)
+                if success:
+                    st.success(f"Rule for '{pattern_input.strip()}' saved and applied successfully!")
+                    st.rerun()
+                else:
+                    st.error("Failed to save and apply global merchant rule.")
+
+        st.markdown("---")
+        st.subheader("Transaction-Level Category Override")
+        st.markdown("Reclassify an individual transaction without creating a global merchant rule.")
+
+        tx_df = self.repo.get_transactions_dataframe()
+
+        if not tx_df.empty and "id" in tx_df.columns:
+            tx_df["display_label"] = tx_df.apply(
+                lambda r: f"ID {r['id']} | {r['trans_date']} | {r['merchant']} | HKD {r['hkd_amount']} | Current: {r['category_name']}",
+                axis=1,
+            )
+            tx_options = dict(zip(tx_df["display_label"], tx_df["id"]))
+
+            col_tx1, col_tx2 = st.columns(2)
+            with col_tx1:
+                selected_tx_label = st.selectbox("Select Transaction to Override", options=list(tx_options.keys()))
+                selected_tx_id = tx_options[selected_tx_label]
+
+            with col_tx2:
+                override_cat_id: Optional[int] = None
+                override_cat_name: Optional[str] = None
+                if not categories_df.empty:
+                    cat_options_override = dict(zip(categories_df["category_name"], categories_df["id"]))
+                    override_cat_name = st.selectbox("New Category", options=list(cat_options_override.keys()), key="tx_override_cat")
+                    override_cat_id = cat_options_override[override_cat_name]
+                else:
+                    st.warning("No categories found in database.")
+
+            override_btn = st.button("Override Category for Transaction")
+
+            if override_btn:
+                if selected_tx_id is not None and override_cat_id is not None:
+                    success = self.repo.update_transaction_category(int(selected_tx_id), override_cat_id)
+                    if success:
+                        st.success(f"Transaction ID {selected_tx_id} updated to category '{override_cat_name}'.")
+                        st.rerun()
+                    else:
+                        st.error("Failed to update transaction category.")
+                else:
+                    st.error("Please select both a transaction and a valid target category.")
+        else:
+            st.info("No transactions available for category override.")
+
     def run(self) -> None:
         st.set_page_config(
             page_title="Statement Ingestion & Operational Dashboard",
@@ -356,10 +519,12 @@ class StatementApp:
 
         if selected == "Upload":
             self.render_upload_page()
+        elif selected == "Categorise":
+            self.render_categorise_page()
         elif selected == "Dashboard":
-            st.info("Dashboard View - Select 'Upload' to ingest statements.")
+            st.info("Dashboard View - Select 'Upload' to ingest statements or 'Categorise' to manage rules.")
         elif selected == "Charts":
-            st.info("Charts View - Select 'Upload' to ingest statements.")
+            st.info("Charts View - Select 'Upload' to ingest statements or 'Categorise' to manage rules.")
 
 
 if __name__ == "__main__":
