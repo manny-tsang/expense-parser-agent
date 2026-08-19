@@ -149,8 +149,10 @@ class PersonalExpenseTracker:
         <style>
         /* 1. Sidebar Header & Collapse Toggle Alignment */
         [data-testid="stSidebarHeader"] {{
-            padding-top: 0.5rem !important;
-            padding-bottom: 0.5rem !important;
+            display: none !important;
+        }}
+        section[data-testid="stSidebar"] > div:first-child {{
+            padding: 0.5rem !important;
         }}
         [data-testid="stSidebarContent"] {{
             padding-top: 0rem !important;
@@ -161,16 +163,15 @@ class PersonalExpenseTracker:
             background-color: #0e1117 !important;
             z-index: 999 !important;
             display: flex !important;
+            justify-content: flex-start !important;
             align-items: center !important;
-            justify-content: space-between !important;
-            padding-left: 1rem !important;
-            padding-right: 1rem !important;
+            padding-left: 2rem !important;
         }}
 
         .sticky-page-title {{
             position: fixed;
             top: 0.75rem;
-            left: 3.5rem;
+            left: 5rem;
             z-index: 1001 !important;
             pointer-events: none;
             font-size: 1.25rem;
@@ -180,7 +181,7 @@ class PersonalExpenseTracker:
 
         /* 3. Main Content Padding */
         .block-container {{
-            padding-top: 3.5rem !important;
+            padding-top: 4rem !important;
             padding-bottom: 1rem !important;
             padding-left: 2rem !important;
             padding-right: 2rem !important;
