@@ -1,6 +1,6 @@
 import argparse
-import os
 import json
+import os
 import re
 import requests
 from dotenv import load_dotenv
@@ -15,7 +15,6 @@ JIRA_API_TOKEN = os.environ.get("JIRA_API_TOKEN", "").strip()
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 
 PROJECT_KEY = "PET"
-SPEC_PATH = "docs/specs/ui_ingestion_spec.md"
 
 # Safety checks
 if not GEMINI_API_KEY:
@@ -33,22 +32,9 @@ os.environ["GEMINI_API_KEY"] = GEMINI_API_KEY
 from google import genai
 from google.genai import types
 
-# =========================================================================
-# CONFIGURATION & ENVIRONMENT
-# =========================================================================
-JIRA_BASE_URL = os.environ.get("JIRA_BASE_URL", "").rstrip("/")
-JIRA_USER_EMAIL = os.environ.get("JIRA_USER_EMAIL", "")
-JIRA_API_TOKEN = os.environ.get("JIRA_API_TOKEN", "")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-
-PROJECT_KEY = "PET"
-SPEC_PATH = "docs/specs/ui_ingestion_spec.md"
-
 
 def get_jira_auth():
     """Return Basic Auth tuple for Jira REST API calls."""
-    if not JIRA_USER_EMAIL or not JIRA_API_TOKEN:
-        raise ValueError("JIRA_USER_EMAIL and JIRA_API_TOKEN environment variables must be set.")
     return (JIRA_USER_EMAIL, JIRA_API_TOKEN)
 
 
@@ -64,7 +50,7 @@ def get_jira_headers():
 # =========================================================================
 def parse_spec_with_gemini(spec_content: str) -> dict:
     """Pass specification document to Gemini to extract structured Epic and Story objects."""
-    client = genai.Client(api_key=GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY"))
+    client = genai.Client(api_key=GEMINI_API_KEY)
 
     prompt = f"""
     You are an expert Agile Product Owner assistant. Parse the following specification document and return a structured JSON object containing the Epics and Stories to be created in Jira.
@@ -85,7 +71,7 @@ def parse_spec_with_gemini(spec_content: str) -> dict:
       "stories": [
         {{
           "title": "[ UI | PY | DB ] Story Title",
-          "target_epic_key_or_name": "PET-4" or "Statement Ingestion UI",
+          "target_epic_key_or_name": "PET-3",
           "description": "Full BDD description including AS A / I WANT / SO THAT and Acceptance Criteria GIVEN/WHEN/THEN"
         }}
       ]
@@ -116,7 +102,6 @@ def create_jira_issue(summary: str, description: str, issue_type: str, parent_ke
     """Create an Issue (Epic or Story) in Jira via v3 REST API."""
     url = f"{JIRA_BASE_URL}/rest/api/3/issue"
     
-    # Atlassian Document Format (ADF) for rich text description
     adf_description = {
         "type": "doc",
         "version": 1,
@@ -158,22 +143,74 @@ def create_jira_issue(summary: str, description: str, issue_type: str, parent_ke
     return response.json()
 
 
+def transition_jira_issue(issue_key: str, transition_name_keyword: str = "define") -> bool:
+    """Transition a Jira issue status matching a transition name keyword (e.g. 'design', 'defining')."""
+    transitions_url = f"{JIRA_BASE_URL}/rest/api/3/issue/{issue_key}/transitions"
+    
+    res = requests.get(transitions_url, auth=get_jira_auth(), headers=get_jira_headers())
+    if res.status_code != 200:
+        print(f"  └─ Warning: Could not fetch transitions for {issue_key}")
+        return False
+
+    transitions = res.json().get("transitions", [])
+    target_transition = None
+
+    for t in transitions:
+        if transition_name_keyword.lower() in t["name"].lower():
+            target_transition = t
+            break
+
+    if not target_transition:
+        print(f"  └─ Note: No transition matching '{transition_name_keyword}' available for {issue_key}")
+        return False
+
+    payload = {"transition": {"id": target_transition["id"]}}
+    post_res = requests.post(transitions_url, auth=get_jira_auth(), headers=get_jira_headers(), json=payload)
+
+    if post_res.status_code in (200, 204):
+        print(f"  └─ Transitioned {issue_key} to '{target_transition['name']}'")
+        return True
+    else:
+        print(f"  └─ Warning: Failed to transition {issue_key} ({post_res.status_code}): {post_res.text}")
+        return False
+
+
 # =========================================================================
 # MAIN EXECUTION FLOW
 # =========================================================================
 def main():
     parser = argparse.ArgumentParser(description="Jira Spec Automation Runner")
-    parser.add_argument("--dry-run", action="store_true", help="Print generated payload without creating Jira issues")
+    parser.add_argument(
+        "--spec",
+        type=str,
+        required=True,
+        help="Path to the specification markdown file (e.g., docs/specs/ui_categorisation_spec.md)"
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print generated payload without creating Jira issues"
+    )
     args = parser.parse_args()
 
-    if not os.path.exists(SPEC_PATH):
-        print(f"Error: Spec file '{SPEC_PATH}' not found.")
+    spec_path = args.spec
+
+    if not os.path.exists(spec_path):
+        print(f"Error: Provided path '{spec_path}' does not exist.")
         return
 
-    with open(SPEC_PATH, "r", encoding="utf-8") as f:
-        spec_content = f.read()
+    if not os.path.isfile(spec_path):
+        print(f"Error: Path '{spec_path}' is a directory, not a valid markdown file.")
+        return
 
-    print("Parsing specification using Gemini API...")
+    try:
+        with open(spec_path, "r", encoding="utf-8") as f:
+            spec_content = f.read()
+    except Exception as e:
+        print(f"Error reading file '{spec_path}': {e}")
+        return
+
+    print(f"Parsing specification file '{spec_path}' using Gemini API...")
     structured_data = parse_spec_with_gemini(spec_content)
 
     if args.dry_run:
@@ -197,11 +234,9 @@ def main():
         created_epics[epic["summary"]] = epic_key
         print(f"  └─ Created Epic {epic_key}")
 
-    # 2. Create Stories under respective Parents
+    # 2. Create Stories under respective Parents & Transition Status
     for story in structured_data.get("stories", []):
         target_epic = story["target_epic_key_or_name"]
-        
-        # Resolve target epic key (either existing key like PET-4 or newly created key)
         parent_key = created_epics.get(target_epic, target_epic)
 
         print(f"Creating Story: '{story['title']}' under Parent '{parent_key}'...")
@@ -211,7 +246,11 @@ def main():
             issue_type="Story",
             parent_key=parent_key
         )
-        print(f"  └─ Created Story {res['key']}")
+        story_key = res["key"]
+        print(f"  └─ Created Story {story_key}")
+
+        # Transition Story status (e.g., 'design' or 'defining')
+        transition_jira_issue(story_key, transition_name_keyword="define")
 
     print("\nAll Jira tickets created successfully!")
 

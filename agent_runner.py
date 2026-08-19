@@ -20,7 +20,7 @@ if not GEMINI_API_KEY:
 os.environ["GEMINI_API_KEY"] = GEMINI_API_KEY
 
 
-def run_agent(spec_path: str, output_path: str, commit_message: str):
+def run_agent(spec_path: str, output_path: str, commit_message: str, context_paths: list = None):
     print(f"🤖 Agent initialized using spec: '{spec_path}'...")
 
     if not os.path.exists(spec_path):
@@ -29,33 +29,76 @@ def run_agent(spec_path: str, output_path: str, commit_message: str):
     with open(spec_path, "r", encoding="utf-8") as f:
         spec_content = f.read()
 
-    # Dynamic role guidance based on target file extension
-    role_desc = "expert Streamlit UI & Python engineer" if output_path.endswith("app.py") else "expert Python software engineer"
+    # Read target file if it already exists (to update in-place rather than overwrite completely)
+    existing_target_code = ""
+    if os.path.exists(output_path):
+        with open(output_path, "r", encoding="utf-8") as f:
+            existing_target_code = f.read()
+
+    # Read context files if provided
+    context_contents = []
+    if context_paths:
+        for cpath in context_paths:
+            if os.path.exists(cpath):
+                with open(cpath, "r", encoding="utf-8") as f:
+                    context_contents.append(f"--- CONTEXT FILE: {cpath} ---\n{f.read()}\n")
+            else:
+                print(f"⚠️ Warning: Context file '{cpath}' not found. Skipping.")
+
+    combined_context = "\n\n".join(context_contents)
+
+    # Dynamic role guidance and strict scoping based on target file
+    if output_path.endswith("app.py"):
+        role_desc = "expert Streamlit UI developer"
+        scope_instruction = """
+STRICT SCOPE BOUNDARY:
+- You are writing/updating ONLY the Streamlit UI presentation layer (`src/app.py`).
+- DO NOT define database table schemas or initial migration logic in this file.
+- Call existing backend repository methods or parser methods for data operations.
+"""
+    else:
+        role_desc = "expert Python backend software engineer"
+        scope_instruction = """
+STRICT SCOPE BOUNDARY:
+- You are writing/updating ONLY the data processing, parsing, and database repository layer (`src/pdf_parser.py`).
+- DO NOT write any Streamlit UI components, `st.title`, `st.sidebar`, page renderers, or Streamlit imports in this file.
+- Implement strictly backend classes like `HKStatementParser` and `DatabaseRepository`.
+"""
 
     prompt = f"""
-You are an {role_desc} building software from formal specs.
+You are an {role_desc} building and updating software from formal specifications.
+
+{scope_instruction}
 
 STRICT INSTRUCTIONS:
-- Implement the Python module strictly adhering to the specification below.
 - Return ONLY valid executable Python code wrapped inside a ```python ``` block.
 - Do NOT include additional conversational text, explanations, or commentary.
+- Update and refactor the TARGET FILE below to fulfill the SPECIFICATION while preserving existing necessary methods and structure.
+- Respect module boundaries established in the CONTEXT FILES (if provided).
 - Ensure all instance methods inside classes explicitly declare `self` as their first parameter.
 - If a class method does not read or modify instance state, decorate it with `@staticmethod`.
-- Ensure the code handles errors gracefully, uses standard Python typing hints, and follows PEP 8.
-- If generating Streamlit code, ensure proper file upload handling, temporary file cleanup, and state management.
+- Follow PEP 8 standards and typing hints.
 
 SPECIFICATION:
 {spec_content}
+
+TARGET FILE TO MODIFY ({output_path}):
+\"\"\"python
+{existing_target_code}
+\"\"\"
+
+{'REFERENCE CONTEXT FILES:' if combined_context else ''}
+{combined_context}
 """
 
-    print("🧠 Sending spec to Gemini API for code generation...")
+    print("🧠 Sending spec and target context to Gemini API for code generation...")
     client = genai.Client()
 
     response = client.models.generate_content(
         model="gemini-3.6-flash",
         contents=prompt,
         config=types.GenerateContentConfig(
-            temperature=0.2,
+            temperature=0.1,
         ),
     )
 
@@ -100,21 +143,26 @@ def main(args=None):
     parser.add_argument(
         "--spec",
         required=True,
-        help="Path to input markdown specification file (e.g., docs/specs/ui_ingestion_spec.md)"
+        help="Path to input markdown specification file (e.g., docs/specs/ui_categorisation_spec.md)"
     )
     parser.add_argument(
         "--target",
         required=True,
-        help="Target path where generated Python file will be saved (e.g., src/app.py)"
+        help="Target path where generated Python file will be saved (e.g., src/pdf_parser.py)"
+    )
+    parser.add_argument(
+        "--context",
+        nargs="*",
+        help="Optional list of reference context files (e.g., --context src/app.py)"
     )
     parser.add_argument(
         "--commit-msg",
         required=True,
-        help="Git commit message for automatic GitHub push (e.g., 'PET-10: Generate Streamlit UI')"
+        help="Git commit message for automatic GitHub push (e.g., 'PET-12: Update parser schema')"
     )
 
     parsed_args = parser.parse_args(args)
-    run_agent(parsed_args.spec, parsed_args.target, parsed_args.commit_msg)
+    run_agent(parsed_args.spec, parsed_args.target, parsed_args.commit_msg, parsed_args.context)
 
 
 if __name__ == "__main__":

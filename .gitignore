@@ -221,3 +221,7 @@ __marimo__/
 data/*
 !data/*.csv
 !data/.gitkeep
+
+# Ignore local SQLite database files
+db/*.db
+!db/.gitkeep

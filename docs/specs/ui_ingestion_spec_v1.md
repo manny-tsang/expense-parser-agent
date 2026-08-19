@@ -17,17 +17,28 @@ Build a functional, intuitive, and responsive Streamlit web application (`src/ap
 
 ## 3. UI Design Principles & Responsive Layout
 
-### 3.1 Responsiveness & Usability
-- **Mobile & Desktop Compatibility**: Set `st.set_page_config(layout="wide")` to ensure components degrade gracefully and stack vertically on mobile device screens.
-- **Functional & Intuitive**: Prioritize clear navigation, immediate visual feedback, clear data scannability, and high-contrast typography over custom decorative styling.
+### 3.1 Responsiveness & Page Titles
+- **Page Configuration**: Set `st.set_page_config(page_title="Transaction History", page_icon="💳", layout="wide")`.
+- **Main Header**: `st.title("Transaction History")`.
+- **Page Subtitle**: `st.markdown("Amalgamation of credit card transactions uploaded successfully, with the ability to filter and search on available transactions.")`.
+- **Mobile & Desktop Compatibility**: Components must degrade gracefully and stack vertically on mobile device screens.
 
 ### 3.2 Sidebar / Control Panel
+- **Sidebar Title**: `st.sidebar.title("Upload Statement")`.
 - **File Selection**: `st.file_uploader` accepting `.pdf` files.
 - **Ingestion Trigger**: A prominent "Process Statement" action button (`st.button`).
-- **Processing Status**: Display a visual spinner during processing (`st.spinner`) and toast alerts for success/failure.
+- **Processing Status & Toast**: Display a visual spinner during processing (`st.spinner`). Upon successful ingestion, display the exact success message: `"Statement processed successfully!"` via toast and sidebar alert.
 
-### 3.3 Main Data Area & Database Alignment
-1. **Schema & Query Strategy**:
+### 3.3 Main Data Area, Sticky Containers & Collapsible Layout
+1. **Sticky Top Header Container**:
+   - Wrap `st.title("Transaction History")`, `st.markdown(...)`, and Summary Metrics Cards inside a sticky container or fixed top-level layout block so title and key totals remain visible while scrolling down the transaction table.
+
+2. **Collapsible Filtering Toolbar**:
+   - Wrap all filtering controls (Category Selector and Merchant Search) inside a collapsible expander component: `st.expander("Filters & Search", expanded=False)`.
+   - Category Filter: Dropdown selector (`st.selectbox`) populated dynamically from the `category` table (`SELECT category_name FROM category ORDER BY category_name`).
+   - Search Bar: Text input (`st.text_input`) filtering the `merchant` column using SQL `LIKE`.
+
+3. **Schema & Query Strategy**:
    - `src/app.py` queries transactions by joining normalized relational tables created by `src/pdf_parser.py`:
      ```sql
      SELECT 
@@ -42,20 +53,15 @@ Build a functional, intuitive, and responsive Streamlit web application (`src/ap
      LEFT JOIN category c ON t.category_id = c.id
      LEFT JOIN currency curr ON t.purchase_currency_id = curr.id
      ```
-   - Categories dropdown is queried directly from `SELECT category_name FROM category ORDER BY category_name`.
 
-2. **Summary Metrics Cards (`st.metric`)**:
+4. **Summary Metrics Cards (`st.metric`)**:
    - Total Spend (Formatted in AUD currency: `$X,XXX.XX`).
    - Total Transaction Count.
    - Top Spending Category.
 
-3. **Real-Time Transaction Grid (`st.dataframe`)**:
+5. **Real-Time Transaction Grid (`st.dataframe`)**:
    - Displays parsed transactions queried directly from `personal-expense-tracker.db`.
    - Columns: `trans_date`, `merchant`, `category_name`, `txn_amount`, `purchase_currency`, `hkd_amount`, `fx_rate`.
-
-4. **Filtering Controls**:
-   - Category Filter: Dropdown selector (`st.selectbox`) populated dynamically from the `category` table.
-   - Search Bar: Text input (`st.text_input`) filtering the `merchant` column using SQL `LIKE`.
 
 ---
 
@@ -87,7 +93,7 @@ Acceptance Criteria:
 Scenario 1: Successful PDF Selection and Processing  
 GIVEN the Streamlit dashboard is running locally  
 WHEN I select a valid PDF credit card statement and click "Process Statement"  
-THEN `parse_statement()` executes, transaction records are stored in `personal-expense-tracker.db`, and a success alert is displayed.  
+THEN `parse_statement()` executes, transaction records are stored in `personal-expense-tracker.db`, and `"Statement processed successfully!"` is displayed.  
 
 Scenario 2: Invalid File Error Handling  
 GIVEN the Streamlit dashboard is open  
@@ -114,5 +120,5 @@ THEN the dashboard automatically updates to display Total Spend, Transaction Cou
 
 Scenario 2: Category Filtering  
 GIVEN parsed transactions are displayed in the data grid  
-WHEN I select a specific category from the dropdown filter  
+WHEN I select a specific category from the dropdown filter inside the collapsed filters view  
 THEN the table dynamically updates to show only transactions matching that category.
