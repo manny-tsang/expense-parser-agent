@@ -162,17 +162,13 @@ class PersonalExpenseTracker:
         [data-testid="stHeader"] {{
             background-color: #0e1117 !important;
             z-index: 999 !important;
-            display: flex !important;
-            justify-content: flex-start !important;
-            align-items: center !important;
-            padding-left: 2rem !important;
         }}
 
         .sticky-page-title {{
-            position: relative;
-            top: -3.5rem;
-            left: 0rem;
-            z-index: 1001 !important;
+            position: fixed;
+            top: 0.85rem;
+            left: 18rem;
+            z-index: 1000 !important;
             pointer-events: none;
             font-size: 1.25rem;
             font-weight: 600;
@@ -208,13 +204,6 @@ class PersonalExpenseTracker:
             line-height: 1.1 !important;
             color: #FFFFFF !important;
             margin-top: 0.5rem !important;
-        }}
-
-        .metric-card-title {{
-            font-size: 0.95rem;
-            color: #A0A0A0;
-            font-weight: 500;
-            margin-bottom: 0.5rem;
         }}
 
         .period-label {{
@@ -290,7 +279,7 @@ class PersonalExpenseTracker:
         with col1:
             with st.container(border=True):
                 st.markdown(
-                    '<div class="metric-card-title">Upload a PDF statement</div>',
+                    '<div class="metric-card-container">Upload a PDF statement</div>',
                     unsafe_allow_html=True,
                 )
                 uploaded_file = st.file_uploader(
@@ -304,7 +293,7 @@ class PersonalExpenseTracker:
             with st.container(border=True):
                 st.markdown(
                     f"""<div class="metric-card-container">
-                        <div class="metric-card-title">Total transactions uploaded</div>
+                        <div>Total transactions uploaded</div>
                         <div class="metric-large">{total_txns}</div>
                     </div>""",
                     unsafe_allow_html=True,
@@ -314,7 +303,7 @@ class PersonalExpenseTracker:
             with st.container(border=True):
                 st.markdown(
                     f"""<div class="metric-card-container">
-                        <div class="metric-card-title">Statement period uploaded</div>
+                        <div>Statement period uploaded</div>
                         <div class="period-label">From:</div>
                         <div class="period-val">{period_from}</div>
                         <div class="period-label">To:</div>
