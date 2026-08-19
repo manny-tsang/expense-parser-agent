@@ -156,7 +156,7 @@ class PersonalExpenseTracker:
             padding-top: 0rem !important;
         }}
 
-        /* 2. Solid Top Sticky Header & Dynamic Title Injection */
+        /* 2. Solid Top Sticky Header & Persistent Title Injection */
         [data-testid="stHeader"] {{
             background-color: #0e1117 !important;
             z-index: 999 !important;
@@ -171,13 +171,14 @@ class PersonalExpenseTracker:
             position: fixed;
             top: 0.75rem;
             left: 3.5rem;
-            z-index: 1000;
+            z-index: 1001 !important;
+            pointer-events: none;
             font-size: 1.25rem;
             font-weight: 600;
             color: #FFFFFF;
         }}
 
-        /* 3. Main Content Padding Offset */
+        /* 3. Main Content Padding */
         .block-container {{
             padding-top: 3.5rem !important;
             padding-bottom: 1rem !important;
@@ -185,7 +186,7 @@ class PersonalExpenseTracker:
             padding-right: 2rem !important;
         }}
 
-        /* 4. Equal Card Dimensions & Border Wrapper Lock (215px height) */
+        /* 4. Equal Card Dimensions & Border Wrapper Lock (215px min-height) */
         div[data-testid="stVerticalBlockBorderWrapper"] > div {{
             min-height: 215px !important;
             flex: 1 !important;
@@ -199,7 +200,7 @@ class PersonalExpenseTracker:
             padding: 0.25rem 0 !important;
         }}
 
-        /* 5. Scaled Typography */
+        /* 5. Content Typography & Card Sizing */
         .metric-large {{
             font-size: 8.8rem !important;
             font-weight: bold !important;
