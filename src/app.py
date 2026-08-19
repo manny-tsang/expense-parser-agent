@@ -45,15 +45,13 @@ except ImportError:
                     with self.get_connection() as conn:
                         query = """
                         SELECT 
-                            t.id,
                             t.trans_date, 
                             t.merchant, 
                             c.category_name, 
                             t.txn_amount, 
                             curr.currency_code AS purchase_currency, 
                             t.hkd_amount, 
-                            t.fx_rate,
-                            t.category_id
+                            t.fx_rate
                         FROM "transaction" t
                         LEFT JOIN category c ON t.category_id = c.id
                         LEFT JOIN currency curr ON t.purchase_currency_id = curr.id
@@ -63,7 +61,6 @@ except ImportError:
                 except Exception:
                     return pd.DataFrame(
                         columns=[
-                            "id",
                             "trans_date",
                             "merchant",
                             "category_name",
@@ -71,7 +68,6 @@ except ImportError:
                             "purchase_currency",
                             "hkd_amount",
                             "fx_rate",
-                            "category_id",
                         ]
                     )
 
@@ -143,98 +139,96 @@ except ImportError:
 DB_PATH = "db/personal-expense-tracker.db"
 
 
-class StatementApp:
+class PersonalExpenseTracker:
     def __init__(self) -> None:
         self.repo = DatabaseRepository(DB_PATH)
 
     @staticmethod
-    def inject_css() -> None:
-        css = """
+    def inject_css(page_title: str) -> None:
+        css = f"""
         <style>
-        /* 1. Flush Sidebar Top Alignment */
-        [data-testid="stSidebarHeader"] {
-            display: none !important;
-        }
-        section[data-testid="stSidebar"] > div:first-child {
+        /* 1. Sidebar Header & Collapse Toggle Alignment */
+        [data-testid="stSidebarHeader"] {{
             padding-top: 0.5rem !important;
-        }
-        [data-testid="stSidebarContent"] {
+            padding-bottom: 0.5rem !important;
+        }}
+        [data-testid="stSidebarContent"] {{
             padding-top: 0rem !important;
-            margin-top: 0rem !important;
-        }
+        }}
 
-        /* 2. Solid Left-Aligned Sticky Header */
-        [data-testid="stHeader"] {
+        /* 2. Solid Top Sticky Header & Dynamic Title Injection */
+        [data-testid="stHeader"] {{
             background-color: #0e1117 !important;
             z-index: 999 !important;
             display: flex !important;
-            justify-content: flex-start !important;
             align-items: center !important;
-            padding-left: 2rem !important;
-        }
+            justify-content: space-between !important;
+            padding-left: 1rem !important;
+            padding-right: 1rem !important;
+        }}
 
-        .block-container {
-            padding-top: 4rem !important;
+        .sticky-page-title {{
+            position: fixed;
+            top: 0.75rem;
+            left: 3.5rem;
+            z-index: 1000;
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #FFFFFF;
+        }}
+
+        /* 3. Main Content Padding Offset */
+        .block-container {{
+            padding-top: 3.5rem !important;
             padding-bottom: 1rem !important;
             padding-left: 2rem !important;
             padding-right: 2rem !important;
-        }
+        }}
 
-        /* 3. Equal Column Height Match across all 3 Cards */
-        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-            display: flex !important;
-        }
-
-        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] > div[data-testid="stVerticalBlockBorderWrapper"] {
-            width: 100% !important;
-            display: flex !important;
-            flex: 1 !important;
-        }
-
-        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] > div[data-testid="stVerticalBlockBorderWrapper"] > div {
-            width: 100% !important;
+        /* 4. Equal Card Dimensions & Border Wrapper Lock (215px height) */
+        div[data-testid="stVerticalBlockBorderWrapper"] > div {{
             min-height: 215px !important;
-            display: flex !important;
-            flex-direction: column !important;
-            justify-content: flex-start !important;
-        }
+            flex: 1 !important;
+        }}
 
-        .metric-card-container {
+        .metric-card-container {{
             height: 100% !important;
             display: flex !important;
             flex-direction: column !important;
             justify-content: flex-start !important;
             padding: 0.25rem 0 !important;
-        }
+        }}
 
-        .metric-large {
-            font-size: 8.8rem;
-            font-weight: bold;
-            color: #FFFFFF;
-            line-height: 1.1;
-            margin-top: 0.5rem;
-        }
+        /* 5. Scaled Typography */
+        .metric-large {{
+            font-size: 8.8rem !important;
+            font-weight: bold !important;
+            line-height: 1.1 !important;
+            color: #FFFFFF !important;
+            margin-top: 0.5rem !important;
+        }}
 
-        .metric-card-title {
+        .metric-card-title {{
             font-size: 0.95rem;
             color: #A0A0A0;
             font-weight: 500;
             margin-bottom: 0.5rem;
-        }
+        }}
 
-        .period-label {
-            font-size: 0.85rem;
-            color: #808495;
-            margin-top: 0.25rem;
-        }
+        .period-label {{
+            font-size: 0.85rem !important;
+            color: #808495 !important;
+            margin-top: 0.25rem !important;
+        }}
 
-        .period-val {
-            font-size: 2rem;
-            font-weight: 600;
-            color: #FFFFFF;
-            margin-bottom: 0.25rem;
-        }
+        .period-val {{
+            font-size: 2rem !important;
+            font-weight: 600 !important;
+            color: #FFFFFF !important;
+            margin-bottom: 0.25rem !important;
+        }}
         </style>
+        <div class="sticky-page-title">{page_title}</div>
         """
         st.markdown(css, unsafe_allow_html=True)
 
@@ -342,6 +336,9 @@ class StatementApp:
                         if isinstance(result, pd.DataFrame) and not result.empty:
                             st.session_state["upload_success"] = True
                             st.rerun()
+                        elif isinstance(result, bool) and result:
+                            st.session_state["upload_success"] = True
+                            st.rerun()
                         else:
                             st.error("Error processing statement. Invalid or duplicate format.")
                     except Exception as e:
@@ -352,16 +349,23 @@ class StatementApp:
             else:
                 st.warning("Please select a PDF file to process.")
 
-        # Show success banner if flag exists, then clear it
         if st.session_state.pop("upload_success", False):
             st.success("Statement processed successfully!")
 
         st.write("")
         st.subheader("Transactions uploaded")
 
-        # Display transactions
         display_cols = [
-            c for c in ["trans_date", "merchant", "category_name", "txn_amount", "purchase_currency", "hkd_amount", "fx_rate"]
+            c
+            for c in [
+                "trans_date",
+                "merchant",
+                "category_name",
+                "txn_amount",
+                "purchase_currency",
+                "hkd_amount",
+                "fx_rate",
+            ]
             if c in df.columns
         ]
         display_df = df[display_cols] if not df.empty and display_cols else df
@@ -412,7 +416,6 @@ class StatementApp:
                 st.rerun()
 
     def render_categorise_page(self) -> None:
-        st.header("Merchant Category Rules")
         st.markdown("Map uncategorised merchants to categories globally.")
 
         uncat_df = self.repo.get_uncategorised_merchants()
@@ -510,12 +513,12 @@ class StatementApp:
 
     def run(self) -> None:
         st.set_page_config(
-            page_title="Statement Ingestion & Operational Dashboard",
+            page_title="Personal Expense Tracker",
             layout="wide",
             initial_sidebar_state="expanded",
         )
-        self.inject_css()
         selected = self.render_sidebar()
+        self.inject_css(selected)
 
         if selected == "Upload":
             self.render_upload_page()
@@ -528,5 +531,5 @@ class StatementApp:
 
 
 if __name__ == "__main__":
-    app = StatementApp()
+    app = PersonalExpenseTracker()
     app.run()
