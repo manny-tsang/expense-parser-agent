@@ -167,7 +167,7 @@ class PersonalExpenseTracker:
         .sticky-page-title {{
             position: fixed;
             top: 0.85rem;
-            left: 18rem;
+            left: 14.5rem;
             z-index: 1000 !important;
             pointer-events: none;
             font-size: 1.25rem;
