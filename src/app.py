@@ -2,7 +2,7 @@ import math
 import os
 import sqlite3
 import tempfile
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 import pandas as pd
 import streamlit as st
@@ -113,7 +113,9 @@ except ImportError:
 
             def get_uncategorised_merchants(self) -> pd.DataFrame:
                 if not os.path.exists(self.db_path):
-                    return pd.DataFrame(columns=["merchant_id", "merchant_name", "transaction_count"])
+                    return pd.DataFrame(
+                        columns=["merchant_id", "merchant_name", "transaction_count"]
+                    )
                 try:
                     with self.get_connection() as conn:
                         query = """
@@ -143,56 +145,32 @@ except ImportError:
                             """
                             return pd.read_sql_query(query_fallback, conn)
                     except Exception:
-                        return pd.DataFrame(columns=["merchant_name", "transaction_count"])
+                        return pd.DataFrame(
+                            columns=["merchant_name", "transaction_count"]
+                        )
 
             def update_merchant_category(
-                self, merchant_id: Optional[int], pattern: str, category_id: int
+                self, merchant_id_or_name: Union[int, str], category_id: int
             ) -> bool:
                 if not os.path.exists(self.db_path):
                     return False
                 try:
                     with self.get_connection() as conn:
                         cursor = conn.cursor()
-                        if merchant_id is not None:
+                        if isinstance(merchant_id_or_name, int):
                             cursor.execute(
                                 "UPDATE merchant SET category_id = ? WHERE id = ?",
-                                (category_id, merchant_id),
+                                (category_id, merchant_id_or_name),
                             )
-                        if pattern and pattern.strip():
-                            clean_pattern = pattern.strip()
+                        else:
                             cursor.execute(
-                                """
-                                UPDATE merchant 
-                                SET category_id = ? 
-                                WHERE UPPER(merchant_name) LIKE '%' || UPPER(?) || '%'
-                                """,
-                                (category_id, clean_pattern),
+                                "UPDATE merchant SET category_id = ? WHERE merchant_name = ?",
+                                (category_id, str(merchant_id_or_name)),
                             )
-                            try:
-                                cursor.execute(
-                                    'INSERT OR REPLACE INTO "merchant_mapping" (pattern, category_id) VALUES (?, ?)',
-                                    (clean_pattern, category_id),
-                                )
-                            except Exception:
-                                pass
-                            try:
-                                cursor.execute(
-                                    """
-                                    UPDATE "transaction"
-                                    SET category_id = ?
-                                    WHERE UPPER(merchant) LIKE '%' || UPPER(?) || '%'
-                                    """,
-                                    (category_id, clean_pattern),
-                                )
-                            except Exception:
-                                pass
                         conn.commit()
                         return True
                 except Exception:
                     return False
-
-            def add_merchant_mapping_rule(self, pattern: str, category_id: int) -> bool:
-                return self.update_merchant_category(None, pattern, category_id)
 
             def update_transaction_category(
                 self, transaction_id: int, category_id: int
@@ -493,117 +471,147 @@ class PersonalExpenseTracker:
         categories_df = self.repo.get_categories()
         tx_df = self.repo.get_transactions_dataframe()
 
+        category_list = []
+        cat_name_to_id = {}
+        if not categories_df.empty and "category_name" in categories_df.columns:
+            category_list = categories_df["category_name"].dropna().tolist()
+            cat_name_to_id = dict(
+                zip(categories_df["category_name"], categories_df["id"])
+            )
+
         # Row 1: 2 Columns
         col1, col2 = st.columns(2)
 
+        # Section 1: Merchant Mapping (Row 1, Column 1)
         with col1:
             with st.container(border=True, height="stretch"):
-                st.subheader("Global merchant mapping")
+                st.subheader("Merchant mapping")
                 st.markdown(
                     "Select an uncategorised merchant and a category to create a mapping. "
-                    "Creating this will re-categorise all transactions made at the chosen merchant to the selected category."
+                    "Saving this mapping will re-categorise ALL transactions made at the chosen merchant to the selected category."
                 )
 
                 uncat_names = []
                 merchant_id_map = {}
-                m_col = "merchant_name" if "merchant_name" in uncat_df.columns else "merchant"
+                m_col = (
+                    "merchant_name"
+                    if "merchant_name" in uncat_df.columns
+                    else "merchant"
+                )
                 if not uncat_df.empty and m_col in uncat_df.columns:
                     uncat_names = uncat_df[m_col].dropna().tolist()
                     if "merchant_id" in uncat_df.columns:
-                        merchant_id_map = dict(zip(uncat_df[m_col], uncat_df["merchant_id"]))
+                        merchant_id_map = dict(
+                            zip(uncat_df[m_col], uncat_df["merchant_id"])
+                        )
 
                 selected_merchant = st.selectbox(
                     "Merchant",
-                    options=["-- Custom Pattern --"] + uncat_names,
+                    options=["Select a merchant"] + uncat_names,
                     key="global_merchant_select",
                 )
 
-                default_pattern = (
-                    "" if selected_merchant == "-- Custom Pattern --" else selected_merchant
+                selected_category = st.selectbox(
+                    "Category",
+                    options=category_list,
+                    key="global_category_select",
                 )
-                pattern_input = st.text_input(
-                    "Merchant pattern / keyword",
-                    value=default_pattern,
-                    key="global_pattern_input",
-                )
-
-                selected_cat_id: Optional[int] = None
-                if not categories_df.empty:
-                    cat_options = dict(
-                        zip(categories_df["category_name"], categories_df["id"])
-                    )
-                    selected_cat_name = st.selectbox(
-                        "Category",
-                        options=list(cat_options.keys()),
-                        key="global_category_select",
-                    )
-                    selected_cat_id = cat_options[selected_cat_name]
-                else:
-                    st.warning("No categories found in database.")
 
                 save_mapping_btn = st.button(
                     "Save mapping", type="primary", key="save_global_mapping"
                 )
 
                 if save_mapping_btn:
-                    if not pattern_input or not pattern_input.strip():
-                        st.error("Please enter a valid merchant pattern / keyword.")
-                    elif selected_cat_id is None:
-                        st.error("Please select a target category.")
+                    if selected_merchant == "Select a merchant":
+                        st.error("Please select a merchant.")
+                    elif not selected_category or selected_category not in cat_name_to_id:
+                        st.error("Please select a category.")
                     else:
-                        target_merchant_id = merchant_id_map.get(selected_merchant)
-                        if hasattr(self.repo, "update_merchant_category"):
+                        cat_id = cat_name_to_id[selected_category]
+                        target_id = merchant_id_map.get(selected_merchant)
+                        if target_id is not None:
                             success = self.repo.update_merchant_category(
-                                target_merchant_id, pattern_input.strip(), selected_cat_id
+                                target_id, cat_id
                             )
                         else:
-                            success = self.repo.add_merchant_mapping_rule(
-                                pattern_input.strip(), selected_cat_id
+                            success = self.repo.update_merchant_category(
+                                selected_merchant, cat_id
                             )
+
                         if success:
-                            st.success(
-                                f"Global mapping for '{pattern_input.strip()}' saved successfully!"
-                            )
                             st.rerun()
                         else:
-                            st.error("Failed to save and apply global merchant mapping.")
+                            st.error("Failed to update merchant mapping.")
 
+        # Section 2: Update Transaction Category (Row 1, Column 2)
         with col2:
             with st.container(border=True, height="stretch"):
-                st.subheader("Transaction-level category mapping")
+                st.subheader("Update transaction category")
                 st.markdown(
                     "Set the category for a specific transaction where the default category mapping may not be correct, "
                     "e.g. a transaction at BP was for groceries instead of fuel as no fuel was purchased, only water. "
                     "Fuel being the default category mapping."
                 )
 
-                selected_tx_id: Optional[int] = None
-                if not tx_df.empty and "id" in tx_df.columns:
-                    tx_df["display_label"] = tx_df.apply(
-                        lambda r: f"ID {r['id']} | {r.get('trans_date', '')} | {r.get('merchant', '')} | HKD {r.get('hkd_amount', 0)} | Current: {r.get('category_name', 'Uncategorised')}",
-                        axis=1,
-                    )
-                    tx_options = dict(zip(tx_df["display_label"], tx_df["id"]))
-                    selected_tx_label = st.selectbox(
-                        "Transaction", options=list(tx_options.keys()), key="tx_select"
-                    )
-                    selected_tx_id = tx_options[selected_tx_label]
-                else:
-                    st.info("No transactions available.")
+                tx_label_list = []
+                tx_map = {}
+                seen_labels = {}
 
-                selected_tx_cat_id: Optional[int] = None
-                if not categories_df.empty:
-                    cat_options_tx = dict(
-                        zip(categories_df["category_name"], categories_df["id"])
+                if not tx_df.empty:
+                    for _, row in tx_df.iterrows():
+                        tx_id = row.get("id")
+                        trans_date = str(row.get("trans_date", ""))
+                        merchant = str(row.get("merchant", ""))
+                        curr = str(row.get("purchase_currency") or "HKD")
+                        amt = row.get("txn_amount", 0.0)
+                        try:
+                            amt_str = f"{float(amt):.2f}"
+                        except (ValueError, TypeError):
+                            amt_str = str(amt)
+
+                        base_label = f"{trans_date} | {merchant} | {curr} {amt_str}"
+                        count = seen_labels.get(base_label, 0)
+                        seen_labels[base_label] = count + 1
+                        label = base_label + ("\u200b" * count)
+
+                        tx_label_list.append(label)
+                        cat_name = row.get("category_name")
+                        cat_str = (
+                            str(cat_name)
+                            if pd.notna(cat_name) and cat_name
+                            else "Uncategorised"
+                        )
+                        tx_map[label] = (tx_id, cat_str)
+
+                selected_tx_label = st.selectbox(
+                    "Transaction",
+                    options=["Select a transaction"] + tx_label_list,
+                    key="tx_select",
+                )
+
+                subcol1, subcol2 = st.columns(2)
+
+                with subcol1:
+                    if (
+                        selected_tx_label != "Select a transaction"
+                        and selected_tx_label in tx_map
+                    ):
+                        current_cat_name = tx_map[selected_tx_label][1]
+                    else:
+                        current_cat_name = ""
+                    st.text_input(
+                        "Current category",
+                        value=current_cat_name,
+                        disabled=True,
+                        key="current_cat_display",
                     )
-                    selected_tx_cat_name = st.selectbox(
-                        "Category",
-                        options=list(cat_options_tx.keys()),
+
+                with subcol2:
+                    selected_new_cat = st.selectbox(
+                        "New category",
+                        options=category_list,
                         key="tx_cat_select",
                     )
-                    selected_tx_cat_id = cat_options_tx[selected_tx_cat_name]
-                else:
-                    st.warning("No categories found in database.")
 
                 update_tx_btn = st.button(
                     "Update transaction category",
@@ -612,80 +620,90 @@ class PersonalExpenseTracker:
                 )
 
                 if update_tx_btn:
-                    if selected_tx_id is not None and selected_tx_cat_id is not None:
+                    if selected_tx_label == "Select a transaction":
+                        st.error("Please select a transaction.")
+                    elif (
+                        not selected_new_cat
+                        or selected_new_cat not in cat_name_to_id
+                    ):
+                        st.error("Please select a category.")
+                    else:
+                        target_tx_id, _ = tx_map[selected_tx_label]
+                        new_cat_id = cat_name_to_id[selected_new_cat]
                         success = self.repo.update_transaction_category(
-                            int(selected_tx_id), selected_tx_cat_id
+                            int(target_tx_id), new_cat_id
                         )
                         if success:
-                            st.success(
-                                f"Transaction ID {selected_tx_id} category updated successfully!"
-                            )
                             st.rerun()
                         else:
                             st.error("Failed to update transaction category.")
-                    else:
-                        st.error("Please select both a transaction and a category.")
 
-        # Row 2: Full Width
+        # Section 3: Uncategorised Merchants (Row 2, Full Width)
         st.subheader("Uncategorised merchants")
         st.markdown(
             "List of merchants currently assigned to 'Uncategorised' requiring mapping."
         )
 
         if not uncat_df.empty:
-            m_col = "merchant_name" if "merchant_name" in uncat_df.columns else "merchant"
-            display_cols = [c for c in [m_col, "transaction_count"] if c in uncat_df.columns]
-            display_uncat_df = uncat_df[display_cols].copy()
-            display_uncat_df = display_uncat_df.rename(
-                columns={m_col: "Merchant", "transaction_count": "Instances"}
+            m_col = (
+                "merchant_name"
+                if "merchant_name" in uncat_df.columns
+                else "merchant"
             )
-
-            page_size = 5
-            total_rows = len(display_uncat_df)
-            total_pages = max(1, math.ceil(total_rows / page_size))
-
-            if "uncat_current_page" not in st.session_state:
-                st.session_state["uncat_current_page"] = 1
-
-            if st.session_state["uncat_current_page"] > total_pages:
-                st.session_state["uncat_current_page"] = total_pages
-            if st.session_state["uncat_current_page"] < 1:
-                st.session_state["uncat_current_page"] = 1
-
-            current_page = st.session_state["uncat_current_page"]
-            start_idx = (current_page - 1) * page_size
-            end_idx = start_idx + page_size
-
-            page_df = display_uncat_df.iloc[start_idx:end_idx]
-            st.dataframe(page_df, use_container_width=True, hide_index=True)
-
-            ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([1, 2, 1])
-
-            with ctrl_col1:
-                if st.button(
-                    "Previous Page",
-                    disabled=(current_page <= 1),
-                    key="uncat_prev_page",
-                    use_container_width=True,
-                ):
-                    st.session_state["uncat_current_page"] -= 1
-                    st.rerun()
-
-            with ctrl_col2:
-                st.markdown(
-                    f"<div style='text-align: center; padding-top: 0.5rem; color: #FAFAFA;'>Page {current_page} of {total_pages}</div>",
-                    unsafe_allow_html=True,
+            if m_col in uncat_df.columns and "transaction_count" in uncat_df.columns:
+                display_uncat_df = uncat_df[[m_col, "transaction_count"]].copy()
+                display_uncat_df = display_uncat_df.rename(
+                    columns={m_col: "Merchant", "transaction_count": "Instances"}
                 )
 
-            with ctrl_col3:
-                if st.button(
-                    "Next Page",
-                    disabled=(current_page >= total_pages),
-                    key="uncat_next_page",
-                    use_container_width=True,
-                ):
-                    st.session_state["uncat_current_page"] += 1
-                    st.rerun()
+                page_size = 5
+                total_rows = len(display_uncat_df)
+                total_pages = max(1, math.ceil(total_rows / page_size))
+
+                if "uncat_current_page" not in st.session_state:
+                    st.session_state["uncat_current_page"] = 1
+
+                if st.session_state["uncat_current_page"] > total_pages:
+                    st.session_state["uncat_current_page"] = total_pages
+                if st.session_state["uncat_current_page"] < 1:
+                    st.session_state["uncat_current_page"] = 1
+
+                current_page = st.session_state["uncat_current_page"]
+                start_idx = (current_page - 1) * page_size
+                end_idx = start_idx + page_size
+
+                page_df = display_uncat_df.iloc[start_idx:end_idx]
+                st.dataframe(page_df, use_container_width=True, hide_index=True)
+
+                ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([1, 2, 1])
+
+                with ctrl_col1:
+                    if st.button(
+                        "Previous Page",
+                        disabled=(current_page <= 1),
+                        key="uncat_prev_page",
+                        use_container_width=True,
+                    ):
+                        st.session_state["uncat_current_page"] -= 1
+                        st.rerun()
+
+                with ctrl_col2:
+                    st.markdown(
+                        f"<div style='text-align: center; padding-top: 0.5rem; color: #FAFAFA;'>Page {current_page} of {total_pages}</div>",
+                        unsafe_allow_html=True,
+                    )
+
+                with ctrl_col3:
+                    if st.button(
+                        "Next Page",
+                        disabled=(current_page >= total_pages),
+                        key="uncat_next_page",
+                        use_container_width=True,
+                    ):
+                        st.session_state["uncat_current_page"] += 1
+                        st.rerun()
+            else:
+                st.info("No uncategorised merchants found.")
         else:
             st.info("No uncategorised merchants found.")
 
