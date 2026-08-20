@@ -524,7 +524,10 @@ class PersonalExpenseTracker:
                 if save_mapping_btn:
                     if selected_merchant == "Select a merchant":
                         st.error("Please select a merchant.")
-                    elif not selected_category or selected_category not in cat_name_to_id:
+                    elif (
+                        not selected_category
+                        or selected_category not in cat_name_to_id
+                    ):
                         st.error("Please select a category.")
                     else:
                         cat_id = cat_name_to_id[selected_category]
@@ -586,7 +589,7 @@ class PersonalExpenseTracker:
                 selected_tx_label = st.selectbox(
                     "Transaction",
                     options=["Select a transaction"] + tx_label_list,
-                    key="tx_select",
+                    key="selected_tx_dropdown",
                 )
 
                 subcol1, subcol2 = st.columns(2)
