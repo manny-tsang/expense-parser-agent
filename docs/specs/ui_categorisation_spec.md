@@ -67,18 +67,21 @@ The Categorise view layout MUST be organized into **two main rows**:
 - **Section Heading**: `st.subheader("Update transaction category")`
 - **Description Text**: `st.markdown("Set the category for a specific transaction where the default category mapping may not be correct, e.g. a transaction at BP was for groceries instead of fuel as no fuel was purchased, only water. Fuel being the default category mapping.")`
 - **UI Input Components**:
-  - **Transaction Selector**: `st.selectbox("Transaction", options=["Select a transaction"] + tx_label_list)`
+  - **Transaction Selector**: `st.selectbox("Transaction", options=["Select a transaction"] + tx_label_list, key="selected_tx_dropdown")`
     - Default selection MUST be `"Select a transaction"`.
     - **Display Label Format**: `<trans_date> | <merchant> | <purchase_currency> <txn_amount>` (e.g., `16-06-2026 | BP RHODES | AUD 45.50`). Must exclude transaction ID, HKD amount, and current category from the label string.
   - **Category Selection Layout (2 Sub-Columns)**:
-    - **Sub-column 1 (`Current category`)**: `st.text_input("Current category", value=current_cat_name, disabled=True)` (read-only display of selected transaction's current category name).
+    - **Dynamic State Lookup**:
+      - When `Transaction` is `"Select a transaction"` or empty, `current_cat_name = ""` (or `"N/A"`).
+      - When a transaction is selected, look up its mapped `category_name` (e.g., `"Uncategorised"`, `"Groceries"`, etc.) from the underlying DataFrame or repository method.
+    - **Sub-column 1 (`Current category`)**: `st.text_input("Current category", value=current_cat_name, disabled=True)` (read-only display reflecting the selected transaction's current category name).
     - **Sub-column 2 (`New category`)**: `st.selectbox("New category", options=category_list)` (target category selector).
   - **Action Button**: `st.button("Update transaction category", type="primary")`
 - **Action Handler**:
   - Validates that a valid transaction is selected (not `"Select a transaction"`).
   - Updates `category_id` on the target record in the `transaction` table.
   - Invokes `st.rerun()` upon successful commit.
-  
+
 ---
 
 ### 4.5 Section 3: Uncategorised Merchants (`Row 2, Full Width`)
