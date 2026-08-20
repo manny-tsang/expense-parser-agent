@@ -49,33 +49,55 @@ except ImportError:
                         SELECT 
                             t.id,
                             t.trans_date, 
-                            t.merchant, 
-                            c.category_name, 
+                            m.merchant_name AS merchant, 
+                            COALESCE(override_cat.category_name, default_cat.category_name) AS category_name, 
                             t.txn_amount, 
                             curr.currency_code AS purchase_currency, 
                             t.hkd_amount, 
                             t.fx_rate,
                             t.category_id
                         FROM "transaction" t
-                        LEFT JOIN category c ON t.category_id = c.id
+                        JOIN merchant m ON t.merchant_id = m.id
+                        LEFT JOIN category default_cat ON m.category_id = default_cat.id
+                        LEFT JOIN category override_cat ON t.category_id = override_cat.id
                         LEFT JOIN currency curr ON t.purchase_currency_id = curr.id
                         ORDER BY t.trans_date DESC, t.id DESC
                         """
                         return pd.read_sql_query(query, conn)
                 except Exception:
-                    return pd.DataFrame(
-                        columns=[
-                            "id",
-                            "trans_date",
-                            "merchant",
-                            "category_name",
-                            "txn_amount",
-                            "purchase_currency",
-                            "hkd_amount",
-                            "fx_rate",
-                            "category_id",
-                        ]
-                    )
+                    try:
+                        with self.get_connection() as conn:
+                            query_fallback = """
+                            SELECT 
+                                t.id,
+                                t.trans_date, 
+                                t.merchant, 
+                                c.category_name, 
+                                t.txn_amount, 
+                                curr.currency_code AS purchase_currency, 
+                                t.hkd_amount, 
+                                t.fx_rate,
+                                t.category_id
+                            FROM "transaction" t
+                            LEFT JOIN category c ON t.category_id = c.id
+                            LEFT JOIN currency curr ON t.purchase_currency_id = curr.id
+                            ORDER BY t.trans_date DESC, t.id DESC
+                            """
+                            return pd.read_sql_query(query_fallback, conn)
+                    except Exception:
+                        return pd.DataFrame(
+                            columns=[
+                                "id",
+                                "trans_date",
+                                "merchant",
+                                "category_name",
+                                "txn_amount",
+                                "purchase_currency",
+                                "hkd_amount",
+                                "fx_rate",
+                                "category_id",
+                            ]
+                        )
 
             def get_categories(self) -> pd.DataFrame:
                 if not os.path.exists(self.db_path):
@@ -357,7 +379,9 @@ class PersonalExpenseTracker:
 
         st.write("")
         st.subheader("Transactions uploaded")
-        st.markdown("This is a list of the raw transactions as they've been imported from the uploaded PDF statement.")
+        st.markdown(
+            "This is a list of the raw transactions as they've been imported from the uploaded PDF statement."
+        )
 
         display_cols = [
             c
@@ -375,7 +399,7 @@ class PersonalExpenseTracker:
         display_df = df[display_cols] if not df.empty and display_cols else df
 
         total_rows = len(display_df)
-        page_size = 5
+        page_size = 10
         total_pages = max(1, math.ceil(total_rows / page_size))
 
         if "current_page" not in st.session_state:
@@ -428,10 +452,8 @@ class PersonalExpenseTracker:
             "New merchants added will not have mapped categories. Categorise enables you to create those mappings."
         )
 
-        # Row 1: 2 Columns
         col1, col2 = st.columns(2)
 
-        # Row 1, Column 1: Global Merchant Mapping
         with col1:
             with st.container(border=True, height="stretch"):
                 st.subheader("Global merchant mapping")
@@ -491,7 +513,6 @@ class PersonalExpenseTracker:
                         else:
                             st.error("Failed to save and apply global merchant mapping.")
 
-        # Row 1, Column 2: Transaction-Level Category Mapping
         with col2:
             with st.container(border=True, height="stretch"):
                 st.subheader("Transaction-level category mapping")
@@ -550,9 +571,10 @@ class PersonalExpenseTracker:
                     else:
                         st.error("Please select both a transaction and a category.")
 
-        # Row 2: Full Width - Uncategorised Merchants
         st.subheader("Uncategorised merchants")
-        st.markdown("List of merchants that require mapping to one of the pre-defined categories.")
+        st.markdown(
+            "List of merchants that require mapping to one of the pre-defined categories."
+        )
 
         if not uncat_df.empty:
             display_uncat_df = uncat_df.copy()
