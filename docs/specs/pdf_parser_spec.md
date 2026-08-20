@@ -131,17 +131,136 @@ CREATE TABLE IF NOT EXISTS "statement_log" (
 );
 ```
 
-### 8.2 Duplicate Statement Prevention Logic
+### 8.2 Baseline Reference Data Seeding Logic
+Upon initializing the database connection, execute idempotent seeding (`INSERT OR IGNORE`) for baseline lookup values:
+
+```sql
+-- Always seed default 'Uncategorised' first to guarantee category_id = 1
+INSERT OR IGNORE INTO "category" ("id", "category_name") VALUES (1, 'Uncategorised');
+
+-- Populate Remaining Categories
+INSERT OR IGNORE INTO "category" ("category_name") VALUES 
+('Automotive'),
+('Bank Fees'),
+('Dining & Cafes'),
+('Fuel'),
+('Groceries'),
+('Haircut'),
+('Health & Fitness'),
+('Medical'),
+('Shopping & Retail'),
+('Subscriptions'),
+('Transport'),
+('Utilities');
+
+-- Populate Countries
+INSERT OR IGNORE INTO "country" ("id", "country_name", "country_code") VALUES 
+(1, 'Austria', 'AT'),
+(2, 'Australia', 'AU'),
+(3, 'Belgium', 'BE'),
+(4, 'Bulgaria', 'BG'),
+(5, 'Canada', 'CA'),
+(6, 'China', 'CN'),
+(7, 'Croatia', 'HR'),
+(8, 'Cyprus', 'CY'),
+(9, 'Czech Republic', 'CZ'),
+(10, 'Denmark', 'DK'),
+(11, 'Estonia', 'EE'),
+(12, 'Finland', 'FI'),
+(13, 'France', 'FR'),
+(14, 'Germany', 'DE'),
+(15, 'Greece', 'GR'),
+(16, 'Hong Kong', 'HK'),
+(17, 'Hungary', 'HU'),
+(18, 'India', 'IN'),
+(19, 'Indonesia', 'ID'),
+(20, 'Ireland', 'IE'),
+(21, 'Italy', 'IT'),
+(22, 'Japan', 'JP'),
+(23, 'Latvia', 'LV'),
+(24, 'Lithuania', 'LT'),
+(25, 'Luxembourg', 'LU'),
+(26, 'Malaysia', 'MY'),
+(27, 'Malta', 'MT'),
+(28, 'Netherlands', 'NL'),
+(29, 'New Zealand', 'NZ'),
+(30, 'Philippines', 'PH'),
+(31, 'Poland', 'PL'),
+(32, 'Portugal', 'PT'),
+(33, 'Romania', 'RO'),
+(34, 'Singapore', 'SG'),
+(35, 'Slovakia', 'SK'),
+(36, 'Slovenia', 'SI'),
+(37, 'South Korea', 'KR'),
+(38, 'Spain', 'ES'),
+(39, 'Sweden', 'SE'),
+(40, 'Switzerland', 'CH'),
+(41, 'Taiwan', 'TW'),
+(42, 'Thailand', 'TH'),
+(43, 'United Kingdom', 'GB'),
+(44, 'United States', 'US'),
+(45, 'Vietnam', 'VN');
+
+-- Populate Currencies
+INSERT OR IGNORE INTO "currency" ("currency_country_id", "currency_code") VALUES 
+(1, 'EUR'),
+(2, 'AUD'),
+(3, 'EUR'),
+(4, 'BGN'),
+(5, 'CAD'),
+(6, 'CNY'),
+(7, 'EUR'),
+(8, 'EUR'),
+(9, 'CZK'),
+(10, 'DKK'),
+(11, 'EUR'),
+(12, 'EUR'),
+(13, 'EUR'),
+(14, 'EUR'),
+(15, 'EUR'),
+(16, 'HKD'),
+(17, 'HUF'),
+(18, 'INR'),
+(19, 'IDR'),
+(20, 'EUR'),
+(21, 'EUR'),
+(22, 'JPY'),
+(23, 'EUR'),
+(24, 'EUR'),
+(25, 'EUR'),
+(26, 'MYR'),
+(27, 'EUR'),
+(28, 'EUR'),
+(29, 'NZD'),
+(30, 'PHP'),
+(31, 'PLN'),
+(32, 'EUR'),
+(33, 'RON'),
+(34, 'SGD'),
+(35, 'EUR'),
+(36, 'EUR'),
+(37, 'KRW'),
+(38, 'EUR'),
+(39, 'SEK'),
+(40, 'CHF'),
+(41, 'TWD'),
+(42, 'THB'),
+(43, 'GBP'),
+(44, 'USD'),
+(45, 'VND');
+```
+
+### 8.3 Duplicate Statement Prevention Logic
 - Before parsing or inserting transactions from a statement file, check if the baseline filename (e.g., `2026-01-08_Statement.pdf`) exists in `statement_log`.
 - If the filename exists in `statement_log`, raise a `ValueError` with `"Statement '<filename>' has already been processed."`.
 - If it does not exist, insert the filename into `statement_log` upon successful ingestion.
 
-### 8.3 Exclusion Filter Rules
+### 8.4 Exclusion Filter Rules
 Before inserting into the database, the parser MUST filter out and discard any transaction where the raw merchant string contains:
 - `IFS PAYMENT`
 - `PAYMENT - THANK YOU`
 
-### 8.4 Auto-Categorisation Engine & Merchant Creation Rules
+### 8.5 Auto-Categorisation Engine & Merchant Creation Rules
 When a clean `merchant_name` string is extracted during PDF parsing:
 1. **Merchant Entity Resolution**: Check if the `merchant_name` exists in the `merchant` table.
 2. **Auto-Categorisation Evaluation**: If the merchant does not exist in the `merchant` table, evaluate the `merchant_name` string against default keyword rules:
@@ -160,8 +279,8 @@ When a clean `merchant_name` string is extracted during PDF parsing:
    - **Fallback**: Unmatched new merchants default to `category_id = 1` (`Uncategorised`).
 3. **Insertion**: Insert the new record into `merchant` with its resolved `category_id` and obtain its `merchant_id`.
 
-### 8.5 Foreign Key Resolution Logic
+### 8.6 Foreign Key Resolution Logic
 1. For `merchant_id`: Retrieve or create the corresponding `id` from the `merchant` table.
 2. For `purchase_currency_id`: Query `currency` table for `currency_code` (e.g., `AUD`). If not found, insert and retrieve new `id`.
-3. For `country_id`: Query `country` table for `country_code` (e.g., `AUS`). If not found, insert and retrieve new `id`. If null/empty, store `NULL`.
+3. For `country_id`: Query `country` table for `country_code` (e.g., `AUS` / `AU`). If not found, insert and retrieve new `id`. If null/empty, store `NULL`.
 4. For `category_id`: On `transaction`, leave as `NULL` unless explicitly overridden.
