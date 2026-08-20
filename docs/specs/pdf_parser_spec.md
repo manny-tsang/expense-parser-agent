@@ -1,11 +1,11 @@
 # Specification: HK Credit Card PDF Statement Parser MVP
 
 ## 1. Objective
-Extract, clean, and anonymize credit card transaction data from a multi-page bank PDF statement and output a structured CSV file locally.
+Extract, clean, and anonymize credit card transaction data from a multi-page bank PDF statement, populate a normalized SQLite database (`db/personal-expense-tracker.db`), and optionally output a structured CSV file locally.
 
 ## 2. Environment & Dependencies
 - **Language:** Python 3.x
-- **Primary Libraries:** `pdfplumber`, `pandas`, `re`
+- **Primary Libraries:** `pdfplumber`, `pandas`, `sqlite3`, `re`, `os`
 
 ## 3. Page Routing & Anchors
 
@@ -56,6 +56,7 @@ The resulting dataframe/CSV must contain the following exact header columns in t
 ### Edge Case Handling
 * **Native HKD Foreign Transactions (e.g., Netflix SG):** If a country code is present (e.g., `SG`) but no foreign currency or exchange rate is listed because billing occurred directly in HKD, populate `purchase_currency` as `HKD`.
 * **Bank Fees & Adjustments (e.g., DCC FEE-NON-HK MERCHANT):** If no physical location or country code is printed on the statement for bank fees, default `country` to `HK` and `purchase_currency` to `HKD`.
+* **Waived Card Annual Fee Reversals:** If a `CARD ANNUAL FEE` transaction is immediately followed by an `ANNUAL FEE REFUND` transaction (or vice-versa on the same date with matching amounts), both transactions MUST be suppressed/discarded during parsing and excluded from database insertion.
 
 ### Monetary Value & Exchange Rate Formatting
 * **Dollar Formatting:** Prepend a `$` sign to monetary values in `aud_amount` and `hkd_amount` formatted to 2 decimal places with commas (e.g., `$180.00`, `$1,015.72`). If `aud_amount` is missing for a native HKD transaction, leave the cell empty.
@@ -79,6 +80,7 @@ The resulting dataframe/CSV must contain the following exact header columns in t
 
 ### 8.1 Entity-Relationship Structure
 
+```sql
 CREATE TABLE IF NOT EXISTS "category" (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     category_name TEXT UNIQUE
@@ -97,17 +99,26 @@ CREATE TABLE IF NOT EXISTS "currency" (
     FOREIGN KEY(currency_country_id) REFERENCES "country"(id)
 );
 
+CREATE TABLE IF NOT EXISTS "merchant" (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    merchant_name TEXT UNIQUE NOT NULL,
+    category_id INTEGER NOT NULL DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(category_id) REFERENCES "category"(id)
+);
+
 CREATE TABLE IF NOT EXISTS "transaction" (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     post_date DATE,
     trans_date DATE,
-    merchant TEXT,
+    merchant_id INTEGER NOT NULL,
     country_id INTEGER,
     purchase_currency_id INTEGER,
     txn_amount REAL,
     hkd_amount REAL,
     fx_rate NUMERIC,
     category_id INTEGER,
+    FOREIGN KEY(merchant_id) REFERENCES "merchant"(id),
     FOREIGN KEY(country_id) REFERENCES "country"(id),
     FOREIGN KEY(purchase_currency_id) REFERENCES "currency"(id),
     FOREIGN KEY(category_id) REFERENCES "category"(id)
@@ -118,35 +129,39 @@ CREATE TABLE IF NOT EXISTS "statement_log" (
     filename TEXT UNIQUE NOT NULL,
     processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+```
 
 ### 8.2 Duplicate Statement Prevention Logic
-- Before parsing or inserting transactions from a statement file, check if the baseline filename (e.g., 2026-01-08_Statement.pdf) exists in statement_log.
-- If the filename exists in statement_log, raise a ValueError with "Statement '<filename>' has already been processed.".
-- If it does not exist, insert the filename into statement_log upon successful ingestion.
+- Before parsing or inserting transactions from a statement file, check if the baseline filename (e.g., `2026-01-08_Statement.pdf`) exists in `statement_log`.
+- If the filename exists in `statement_log`, raise a `ValueError` with `"Statement '<filename>' has already been processed."`.
+- If it does not exist, insert the filename into `statement_log` upon successful ingestion.
 
 ### 8.3 Exclusion Filter Rules
-Before inserting into the database, the parser MUST filter out and discard any transaction where the `merchant` string contains:
+Before inserting into the database, the parser MUST filter out and discard any transaction where the raw merchant string contains:
 - `IFS PAYMENT`
 - `PAYMENT - THANK YOU`
 
-### 8.4 Auto-Categorisation Engine Rules
-During ingestion, the parser must evaluate the `merchant` string against the following dictionary rules to determine `category_id`:
-
-- **Automotive**: `MEEK AUTOMOTIVE`, `SHANNONS`, `SUPERCHEAP AUTO`, `AUTOMOTIVE`, `MECHANIC`
-- **Bank Fees**: `DCC FEE`, `FOREIGN TRANSACTION FEE`, `LATE FEE`, `INTEREST CHARGE`
-- **Dining & Cafes**: `24 YORK`, `BARE WITNESS`, `BAMBOO SUSHI`, `BY V BAR`, `CONCORDIA CLUB`, `CHARGRILL OLYMPICPARK`, `EL JANNAH`, `GYUKATSU KYOTO`, `HASHI SUSHI`, `HIN TEE CHOO`, `HOONSIKDANG`, `KFC`, `MESSIN`, `SIMPLE SIMONS GELATO`, `SQ *ANGUS MARRICKVILLE`, `SQ *BELLA BACIATA`, `SQ *GOOD FELLA`, `SQ *GUMPTION`, `SQ *HEADLANDS`, `SQ *KABUL SOCIAL`, `SQ *LAB RHODES`, `SQ *MAMUKI`, `SQ *THE BERLIN FOOD`, `SQ *YUMYUM`, `THE LUCKY PLACE`, `THE MAJOR HABERFIELD`, `THE LONDON HOTEL`, `UNCLE TETSU`, `GELATO`, `GYG`, `CAFE`, `RESTAURANT`, `COFFEE`, `BAKERY`, `PATISSERIE`, `MCDONALD`
-- **Fuel**: `BP `, `BP CONNECT`, `SHELL`, `AMPOL`, `7-ELEVEN`, `UNITED PETROLEUM`, `CALTEX`
-- **Groceries**: `WOOLWORTHS`, `COLES`, `ALDI`, `PETBARN`, `ZETCITI`, `SUPERMARKET`, `IGAMARKET`, `GROCER`
-- **Haircut**: `SQ *STUDIO NO. 4`, `BARBER`, `HAIR`, `SALON`
-- **Health & Fitness**: `ADRENALINE HQ`, `CHEMIST WAREHOUSE`, `EZI*DYNASTY`, `KAPNOR`, `GYM`, `PHARMACY`, `CHEMIST`, `HEALTH`, `FITNESS`
-- **Medical**: `SHIM SZE EIN`, `DOCTOR`, `CLINIC`, `DENTAL`, `MEDICAL`
-- **Shopping & Retail**: `AMAZON`, `AQUILA`, `KIEHLS`, `REBEL`, `UNIQLO`, `BUNNINGS`, `KMART`, `TARGET`, `APPLE`
-- **Subscriptions**: `CANVA`, `NETFLIX`, `PDF.NET`, `SPOTIFY`, `APPLE.COM/BILL`, `YOUTUBE`, `PRIME`, `DISNEY`
-- **Transport**: `OPAL`, `PARKING`, `UBER`, `TAXI`, `TRANSPORT`, `TRANSIT`
-- **Utilities**: `TELSTRA`, `OPTUS`, `ENERGY`, `WATER`, `AANET`, `AGL`, `ORIGIN`
-- **Fallback**: Any unmatched merchant must be assigned to `Uncategorised`.
+### 8.4 Auto-Categorisation Engine & Merchant Creation Rules
+When a clean `merchant_name` string is extracted during PDF parsing:
+1. **Merchant Entity Resolution**: Check if the `merchant_name` exists in the `merchant` table.
+2. **Auto-Categorisation Evaluation**: If the merchant does not exist in the `merchant` table, evaluate the `merchant_name` string against default keyword rules:
+   - **Automotive**: `MEEK AUTOMOTIVE`, `SHANNONS`, `SUPERCHEAP AUTO`, `AUTOMOTIVE`, `MECHANIC`
+   - **Bank Fees**: `DCC FEE`, `FOREIGN TRANSACTION FEE`, `LATE FEE`, `INTEREST CHARGE`
+   - **Dining & Cafes**: `24 YORK`, `BARE WITNESS`, `BAMBOO SUSHI`, `BY V BAR`, `CONCORDIA CLUB`, `CHARGRILL OLYMPICPARK`, `EL JANNAH`, `GYUKATSU KYOTO`, `HASHI SUSHI`, `HIN TEE CHOO`, `HOONSIKDANG`, `KFC`, `MESSIN`, `SIMPLE SIMONS GELATO`, `SQ *ANGUS MARRICKVILLE`, `SQ *BELLA BACIATA`, `SQ *GOOD FELLA`, `SQ *GUMPTION`, `SQ *HEADLANDS`, `SQ *KABUL SOCIAL`, `SQ *LAB RHODES`, `SQ *MAMUKI`, `SQ *THE BERLIN FOOD`, `SQ *YUMYUM`, `THE LUCKY PLACE`, `THE MAJOR HABERFIELD`, `THE LONDON HOTEL`, `UNCLE TETSU`, `GELATO`, `GYG`, `CAFE`, `RESTAURANT`, `COFFEE`, `BAKERY`, `PATISSERIE`, `MCDONALD`
+   - **Fuel**: `BP `, `BP CONNECT`, `SHELL`, `AMPOL`, `7-ELEVEN`, `UNITED PETROLEUM`, `CALTEX`
+   - **Groceries**: `WOOLWORTHS`, `COLES`, `ALDI`, `PETBARN`, `ZETCITI`, `SUPERMARKET`, `IGAMARKET`, `GROCER`
+   - **Haircut**: `SQ *STUDIO NO. 4`, `BARBER`, `HAIR`, `SALON`
+   - **Health & Fitness**: `ADRENALINE HQ`, `CHEMIST WAREHOUSE`, `EZI*DYNASTY`, `KAPNOR`, `GYM`, `PHARMACY`, `CHEMIST`, `HEALTH`, `FITNESS`
+   - **Medical**: `SHIM SZE EIN`, `DOCTOR`, `CLINIC`, `DENTAL`, `MEDICAL`
+   - **Shopping & Retail**: `AMAZON`, `AQUILA`, `KIEHLS`, `REBEL`, `UNIQLO`, `BUNNINGS`, `KMART`, `TARGET`, `APPLE`
+   - **Subscriptions**: `CANVA`, `NETFLIX`, `PDF.NET`, `SPOTIFY`, `APPLE.COM/BILL`, `YOUTUBE`, `PRIME`, `DISNEY`
+   - **Transport**: `OPAL`, `PARKING`, `UBER`, `TAXI`, `TRANSPORT`, `TRANSIT`
+   - **Utilities**: `TELSTRA`, `OPTUS`, `ENERGY`, `WATER`, `AANET`, `AGL`, `ORIGIN`
+   - **Fallback**: Unmatched new merchants default to `category_id = 1` (`Uncategorised`).
+3. **Insertion**: Insert the new record into `merchant` with its resolved `category_id` and obtain its `merchant_id`.
 
 ### 8.5 Foreign Key Resolution Logic
-1. For `category_id`: Query `category` table for `category_name`. If not found, insert and retrieve new `id`.
+1. For `merchant_id`: Retrieve or create the corresponding `id` from the `merchant` table.
 2. For `purchase_currency_id`: Query `currency` table for `currency_code` (e.g., `AUD`). If not found, insert and retrieve new `id`.
 3. For `country_id`: Query `country` table for `country_code` (e.g., `AUS`). If not found, insert and retrieve new `id`. If null/empty, store `NULL`.
+4. For `category_id`: On `transaction`, leave as `NULL` unless explicitly overridden.

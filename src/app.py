@@ -176,11 +176,11 @@ class PersonalExpenseTracker:
 
         .sticky-page-title {{
             position: fixed;
-            top: 0.85rem;
+            top: 0.2rem;
             left: 14.5rem;
             z-index: 1000 !important;
             pointer-events: none;
-            font-size: 1.25rem;
+            font-size: 2rem;
             font-weight: 600;
             color: #FFFFFF;
         }}
@@ -287,7 +287,7 @@ class PersonalExpenseTracker:
         col1, col2, col3 = st.columns(3)
 
         with col1:
-            with st.container(border=True):
+            with st.container(border=True, height="stretch"):
                 st.markdown(
                     '<div class="metric-card-container">Upload a PDF statement</div>',
                     unsafe_allow_html=True,
@@ -300,7 +300,7 @@ class PersonalExpenseTracker:
                 )
 
         with col2:
-            with st.container(border=True):
+            with st.container(border=True, height="stretch"):
                 st.markdown(
                     f"""<div class="metric-card-container">
                         <div>Total transactions uploaded</div>
@@ -310,7 +310,7 @@ class PersonalExpenseTracker:
                 )
 
         with col3:
-            with st.container(border=True):
+            with st.container(border=True, height="stretch"):
                 st.markdown(
                     f"""<div class="metric-card-container">
                         <div>Statement period uploaded</div>
@@ -357,6 +357,7 @@ class PersonalExpenseTracker:
 
         st.write("")
         st.subheader("Transactions uploaded")
+        st.markdown("This is a list of the raw transactions as they've been imported from the uploaded PDF statement.")
 
         display_cols = [
             c
@@ -374,7 +375,7 @@ class PersonalExpenseTracker:
         display_df = df[display_cols] if not df.empty and display_cols else df
 
         total_rows = len(display_df)
-        page_size = 10
+        page_size = 5
         total_pages = max(1, math.ceil(total_rows / page_size))
 
         if "current_page" not in st.session_state:
@@ -423,127 +424,131 @@ class PersonalExpenseTracker:
         categories_df = self.repo.get_categories()
         tx_df = self.repo.get_transactions_dataframe()
 
+        st.markdown(
+            "New merchants added will not have mapped categories. Categorise enables you to create those mappings."
+        )
+
         # Row 1: 2 Columns
         col1, col2 = st.columns(2)
 
         # Row 1, Column 1: Global Merchant Mapping
         with col1:
-            st.subheader("Global merchant mapping")
-            st.markdown(
-                "Select an uncategorised merchant and a category to create a mapping. "
-                "Creating this will re-categorise all transactions made at the chosen merchant to the selected category."
-            )
-
-            uncat_list = uncat_df["merchant"].tolist() if not uncat_df.empty else []
-            selected_merchant = st.selectbox(
-                "Merchant",
-                options=["-- Custom Pattern --"] + uncat_list,
-                key="global_merchant_select",
-            )
-
-            default_pattern = (
-                "" if selected_merchant == "-- Custom Pattern --" else selected_merchant
-            )
-            pattern_input = st.text_input(
-                "Merchant pattern / keyword",
-                value=default_pattern,
-                key="global_pattern_input",
-            )
-
-            selected_cat_id: Optional[int] = None
-            if not categories_df.empty:
-                cat_options = dict(
-                    zip(categories_df["category_name"], categories_df["id"])
+            with st.container(border=True, height="stretch"):
+                st.subheader("Global merchant mapping")
+                st.markdown(
+                    "Select an uncategorised merchant and a category to create a mapping. "
+                    "Saving this mapping will re-categorise ALL transactions made at the chosen merchant to the selected category."
                 )
-                selected_cat_name = st.selectbox(
-                    "Category",
-                    options=list(cat_options.keys()),
-                    key="global_category_select",
+
+                uncat_list = uncat_df["merchant"].tolist() if not uncat_df.empty else []
+                selected_merchant = st.selectbox(
+                    "Merchant",
+                    options=["-- Custom Pattern --"] + uncat_list,
+                    key="global_merchant_select",
                 )
-                selected_cat_id = cat_options[selected_cat_name]
-            else:
-                st.warning("No categories found in database.")
 
-            save_mapping_btn = st.button(
-                "Save mapping", type="primary", key="save_global_mapping"
-            )
+                default_pattern = (
+                    "" if selected_merchant == "-- Custom Pattern --" else selected_merchant
+                )
+                pattern_input = st.text_input(
+                    "Merchant pattern / keyword",
+                    value=default_pattern,
+                    key="global_pattern_input",
+                )
 
-            if save_mapping_btn:
-                if not pattern_input or not pattern_input.strip():
-                    st.error("Please enter a valid merchant pattern / keyword.")
-                elif selected_cat_id is None:
-                    st.error("Please select a target category.")
-                else:
-                    success = self.repo.add_merchant_mapping_rule(
-                        pattern_input.strip(), selected_cat_id
+                selected_cat_id: Optional[int] = None
+                if not categories_df.empty:
+                    cat_options = dict(
+                        zip(categories_df["category_name"], categories_df["id"])
                     )
-                    if success:
-                        st.success(
-                            f"Global rule for '{pattern_input.strip()}' saved and applied successfully!"
-                        )
-                        st.rerun()
+                    selected_cat_name = st.selectbox(
+                        "Category",
+                        options=list(cat_options.keys()),
+                        key="global_category_select",
+                    )
+                    selected_cat_id = cat_options[selected_cat_name]
+                else:
+                    st.warning("No categories found in database.")
+
+                save_mapping_btn = st.button(
+                    "Save mapping", type="primary", key="save_global_mapping"
+                )
+
+                if save_mapping_btn:
+                    if not pattern_input or not pattern_input.strip():
+                        st.error("Please enter a valid merchant pattern / keyword.")
+                    elif selected_cat_id is None:
+                        st.error("Please select a target category.")
                     else:
-                        st.error("Failed to save and apply global merchant mapping.")
+                        success = self.repo.add_merchant_mapping_rule(
+                            pattern_input.strip(), selected_cat_id
+                        )
+                        if success:
+                            st.success(
+                                f"Global rule for '{pattern_input.strip()}' saved and applied successfully!"
+                            )
+                            st.rerun()
+                        else:
+                            st.error("Failed to save and apply global merchant mapping.")
 
         # Row 1, Column 2: Transaction-Level Category Mapping
         with col2:
-            st.subheader("Transaction-level category mapping")
-            st.markdown(
-                "Set the category for a specific transaction where the default category mapping may not be correct, "
-                "e.g. a transaction at BP was for groceries instead of fuel as no fuel was purchased, only water. "
-                "Fuel being the default category mapping."
-            )
-
-            selected_tx_id: Optional[int] = None
-            if not tx_df.empty and "id" in tx_df.columns:
-                tx_df["display_label"] = tx_df.apply(
-                    lambda r: f"ID {r['id']} | {r.get('trans_date', '')} | {r.get('merchant', '')} | HKD {r.get('hkd_amount', 0)} | Current: {r.get('category_name', 'Uncategorised')}",
-                    axis=1,
+            with st.container(border=True, height="stretch"):
+                st.subheader("Transaction-level category mapping")
+                st.markdown(
+                    "Set the category for a specific transaction where the default category mapping may not be correct, "
+                    "e.g. a transaction at BP was for groceries instead of fuel as no fuel was purchased, only water. "
+                    "Fuel being the default category mapping."
                 )
-                tx_options = dict(zip(tx_df["display_label"], tx_df["id"]))
-                selected_tx_label = st.selectbox(
-                    "Transaction", options=list(tx_options.keys()), key="tx_select"
-                )
-                selected_tx_id = tx_options[selected_tx_label]
-            else:
-                st.info("No transactions available.")
 
-            selected_tx_cat_id: Optional[int] = None
-            if not categories_df.empty:
-                cat_options_tx = dict(
-                    zip(categories_df["category_name"], categories_df["id"])
-                )
-                selected_tx_cat_name = st.selectbox(
-                    "Category",
-                    options=list(cat_options_tx.keys()),
-                    key="tx_cat_select",
-                )
-                selected_tx_cat_id = cat_options_tx[selected_tx_cat_name]
-            else:
-                st.warning("No categories found in database.")
-
-            update_tx_btn = st.button(
-                "Update transaction category",
-                type="primary",
-                key="update_tx_category",
-            )
-
-            if update_tx_btn:
-                if selected_tx_id is not None and selected_tx_cat_id is not None:
-                    success = self.repo.update_transaction_category(
-                        int(selected_tx_id), selected_tx_cat_id
+                selected_tx_id: Optional[int] = None
+                if not tx_df.empty and "id" in tx_df.columns:
+                    tx_df["display_label"] = tx_df.apply(
+                        lambda r: f"ID {r['id']} | {r.get('trans_date', '')} | {r.get('merchant', '')} | HKD {r.get('hkd_amount', 0)} | Current: {r.get('category_name', 'Uncategorised')}",
+                        axis=1,
                     )
-                    if success:
-                        st.success(
-                            f"Transaction ID {selected_tx_id} category updated successfully!"
-                        )
-                        st.rerun()
-                    else:
-                        st.error("Failed to update transaction category.")
+                    tx_options = dict(zip(tx_df["display_label"], tx_df["id"]))
+                    selected_tx_label = st.selectbox(
+                        "Transaction", options=list(tx_options.keys()), key="tx_select"
+                    )
+                    selected_tx_id = tx_options[selected_tx_label]
                 else:
-                    st.error("Please select both a transaction and a category.")
+                    st.info("No transactions available.")
 
-        st.markdown("---")
+                selected_tx_cat_id: Optional[int] = None
+                if not categories_df.empty:
+                    cat_options_tx = dict(
+                        zip(categories_df["category_name"], categories_df["id"])
+                    )
+                    selected_tx_cat_name = st.selectbox(
+                        "Category",
+                        options=list(cat_options_tx.keys()),
+                        key="tx_cat_select",
+                    )
+                    selected_tx_cat_id = cat_options_tx[selected_tx_cat_name]
+                else:
+                    st.warning("No categories found in database.")
+
+                update_tx_btn = st.button(
+                    "Update transaction category",
+                    type="primary",
+                    key="update_tx_category",
+                )
+
+                if update_tx_btn:
+                    if selected_tx_id is not None and selected_tx_cat_id is not None:
+                        success = self.repo.update_transaction_category(
+                            int(selected_tx_id), selected_tx_cat_id
+                        )
+                        if success:
+                            st.success(
+                                f"Transaction ID {selected_tx_id} category updated successfully!"
+                            )
+                            st.rerun()
+                        else:
+                            st.error("Failed to update transaction category.")
+                    else:
+                        st.error("Please select both a transaction and a category.")
 
         # Row 2: Full Width - Uncategorised Merchants
         st.subheader("Uncategorised merchants")
