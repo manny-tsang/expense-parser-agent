@@ -113,48 +113,92 @@ except ImportError:
 
             def get_uncategorised_merchants(self) -> pd.DataFrame:
                 if not os.path.exists(self.db_path):
-                    return pd.DataFrame(columns=["merchant", "transaction_count"])
+                    return pd.DataFrame(columns=["merchant_id", "merchant_name", "transaction_count"])
                 try:
                     with self.get_connection() as conn:
                         query = """
-                        SELECT t.merchant, COUNT(t.id) AS transaction_count
+                        SELECT 
+                            m.id AS merchant_id,
+                            m.merchant_name, 
+                            COUNT(t.id) AS transaction_count
                         FROM "transaction" t
-                        JOIN category c ON t.category_id = c.id
-                        WHERE c.category_name = 'Uncategorised'
-                        GROUP BY t.merchant
-                        ORDER BY transaction_count DESC, t.merchant ASC
+                        JOIN merchant m ON t.merchant_id = m.id
+                        WHERE m.category_id = 1 AND t.category_id IS NULL
+                        GROUP BY m.id, m.merchant_name
+                        ORDER BY transaction_count DESC, m.merchant_name ASC
                         """
                         return pd.read_sql_query(query, conn)
                 except Exception:
-                    return pd.DataFrame(columns=["merchant", "transaction_count"])
+                    try:
+                        with self.get_connection() as conn:
+                            query_fallback = """
+                            SELECT 
+                                t.merchant AS merchant_name, 
+                                COUNT(t.id) AS transaction_count
+                            FROM "transaction" t
+                            LEFT JOIN category c ON t.category_id = c.id
+                            WHERE c.category_name = 'Uncategorised' OR t.category_id = 1 OR t.category_id IS NULL
+                            GROUP BY t.merchant
+                            ORDER BY transaction_count DESC, t.merchant ASC
+                            """
+                            return pd.read_sql_query(query_fallback, conn)
+                    except Exception:
+                        return pd.DataFrame(columns=["merchant_name", "transaction_count"])
 
-            def add_merchant_mapping_rule(self, pattern: str, category_id: int) -> bool:
-                if not pattern or not pattern.strip():
+            def update_merchant_category(
+                self, merchant_id: Optional[int], pattern: str, category_id: int
+            ) -> bool:
+                if not os.path.exists(self.db_path):
                     return False
-                clean_pattern = pattern.strip()
                 try:
                     with self.get_connection() as conn:
                         cursor = conn.cursor()
-                        cursor.execute(
-                            'INSERT OR REPLACE INTO "merchant_mapping" (pattern, category_id) VALUES (?, ?)',
-                            (clean_pattern, category_id),
-                        )
-                        cursor.execute(
-                            """
-                            UPDATE "transaction"
-                            SET category_id = ?
-                            WHERE UPPER(merchant) LIKE '%' || UPPER(?) || '%'
-                            """,
-                            (category_id, clean_pattern),
-                        )
+                        if merchant_id is not None:
+                            cursor.execute(
+                                "UPDATE merchant SET category_id = ? WHERE id = ?",
+                                (category_id, merchant_id),
+                            )
+                        if pattern and pattern.strip():
+                            clean_pattern = pattern.strip()
+                            cursor.execute(
+                                """
+                                UPDATE merchant 
+                                SET category_id = ? 
+                                WHERE UPPER(merchant_name) LIKE '%' || UPPER(?) || '%'
+                                """,
+                                (category_id, clean_pattern),
+                            )
+                            try:
+                                cursor.execute(
+                                    'INSERT OR REPLACE INTO "merchant_mapping" (pattern, category_id) VALUES (?, ?)',
+                                    (clean_pattern, category_id),
+                                )
+                            except Exception:
+                                pass
+                            try:
+                                cursor.execute(
+                                    """
+                                    UPDATE "transaction"
+                                    SET category_id = ?
+                                    WHERE UPPER(merchant) LIKE '%' || UPPER(?) || '%'
+                                    """,
+                                    (category_id, clean_pattern),
+                                )
+                            except Exception:
+                                pass
                         conn.commit()
                         return True
                 except Exception:
                     return False
 
+            def add_merchant_mapping_rule(self, pattern: str, category_id: int) -> bool:
+                return self.update_merchant_category(None, pattern, category_id)
+
             def update_transaction_category(
                 self, transaction_id: int, category_id: int
             ) -> bool:
+                if not os.path.exists(self.db_path):
+                    return False
                 try:
                     with self.get_connection() as conn:
                         cursor = conn.cursor()
@@ -272,7 +316,8 @@ class PersonalExpenseTracker:
         except Exception:
             return "N/A", "N/A"
 
-    def render_sidebar(self) -> str:
+    @staticmethod
+    def render_sidebar() -> str:
         with st.sidebar:
             selected = option_menu(
                 menu_title=None,
@@ -448,10 +493,7 @@ class PersonalExpenseTracker:
         categories_df = self.repo.get_categories()
         tx_df = self.repo.get_transactions_dataframe()
 
-        st.markdown(
-            "New merchants added will not have mapped categories. Categorise enables you to create those mappings."
-        )
-
+        # Row 1: 2 Columns
         col1, col2 = st.columns(2)
 
         with col1:
@@ -459,13 +501,20 @@ class PersonalExpenseTracker:
                 st.subheader("Global merchant mapping")
                 st.markdown(
                     "Select an uncategorised merchant and a category to create a mapping. "
-                    "Saving this mapping will re-categorise ALL transactions made at the chosen merchant to the selected category."
+                    "Creating this will re-categorise all transactions made at the chosen merchant to the selected category."
                 )
 
-                uncat_list = uncat_df["merchant"].tolist() if not uncat_df.empty else []
+                uncat_names = []
+                merchant_id_map = {}
+                m_col = "merchant_name" if "merchant_name" in uncat_df.columns else "merchant"
+                if not uncat_df.empty and m_col in uncat_df.columns:
+                    uncat_names = uncat_df[m_col].dropna().tolist()
+                    if "merchant_id" in uncat_df.columns:
+                        merchant_id_map = dict(zip(uncat_df[m_col], uncat_df["merchant_id"]))
+
                 selected_merchant = st.selectbox(
                     "Merchant",
-                    options=["-- Custom Pattern --"] + uncat_list,
+                    options=["-- Custom Pattern --"] + uncat_names,
                     key="global_merchant_select",
                 )
 
@@ -502,12 +551,18 @@ class PersonalExpenseTracker:
                     elif selected_cat_id is None:
                         st.error("Please select a target category.")
                     else:
-                        success = self.repo.add_merchant_mapping_rule(
-                            pattern_input.strip(), selected_cat_id
-                        )
+                        target_merchant_id = merchant_id_map.get(selected_merchant)
+                        if hasattr(self.repo, "update_merchant_category"):
+                            success = self.repo.update_merchant_category(
+                                target_merchant_id, pattern_input.strip(), selected_cat_id
+                            )
+                        else:
+                            success = self.repo.add_merchant_mapping_rule(
+                                pattern_input.strip(), selected_cat_id
+                            )
                         if success:
                             st.success(
-                                f"Global rule for '{pattern_input.strip()}' saved and applied successfully!"
+                                f"Global mapping for '{pattern_input.strip()}' saved successfully!"
                             )
                             st.rerun()
                         else:
@@ -571,17 +626,66 @@ class PersonalExpenseTracker:
                     else:
                         st.error("Please select both a transaction and a category.")
 
+        # Row 2: Full Width
         st.subheader("Uncategorised merchants")
         st.markdown(
-            "List of merchants that require mapping to one of the pre-defined categories."
+            "List of merchants currently assigned to 'Uncategorised' requiring mapping."
         )
 
         if not uncat_df.empty:
-            display_uncat_df = uncat_df.copy()
+            m_col = "merchant_name" if "merchant_name" in uncat_df.columns else "merchant"
+            display_cols = [c for c in [m_col, "transaction_count"] if c in uncat_df.columns]
+            display_uncat_df = uncat_df[display_cols].copy()
             display_uncat_df = display_uncat_df.rename(
-                columns={"merchant": "Merchant", "transaction_count": "Instances"}
+                columns={m_col: "Merchant", "transaction_count": "Instances"}
             )
-            st.dataframe(display_uncat_df, use_container_width=True, hide_index=True)
+
+            page_size = 5
+            total_rows = len(display_uncat_df)
+            total_pages = max(1, math.ceil(total_rows / page_size))
+
+            if "uncat_current_page" not in st.session_state:
+                st.session_state["uncat_current_page"] = 1
+
+            if st.session_state["uncat_current_page"] > total_pages:
+                st.session_state["uncat_current_page"] = total_pages
+            if st.session_state["uncat_current_page"] < 1:
+                st.session_state["uncat_current_page"] = 1
+
+            current_page = st.session_state["uncat_current_page"]
+            start_idx = (current_page - 1) * page_size
+            end_idx = start_idx + page_size
+
+            page_df = display_uncat_df.iloc[start_idx:end_idx]
+            st.dataframe(page_df, use_container_width=True, hide_index=True)
+
+            ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([1, 2, 1])
+
+            with ctrl_col1:
+                if st.button(
+                    "Previous Page",
+                    disabled=(current_page <= 1),
+                    key="uncat_prev_page",
+                    use_container_width=True,
+                ):
+                    st.session_state["uncat_current_page"] -= 1
+                    st.rerun()
+
+            with ctrl_col2:
+                st.markdown(
+                    f"<div style='text-align: center; padding-top: 0.5rem; color: #FAFAFA;'>Page {current_page} of {total_pages}</div>",
+                    unsafe_allow_html=True,
+                )
+
+            with ctrl_col3:
+                if st.button(
+                    "Next Page",
+                    disabled=(current_page >= total_pages),
+                    key="uncat_next_page",
+                    use_container_width=True,
+                ):
+                    st.session_state["uncat_current_page"] += 1
+                    st.rerun()
         else:
             st.info("No uncategorised merchants found.")
 
