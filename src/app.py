@@ -301,7 +301,7 @@ class PersonalExpenseTracker:
                 menu_title=None,
                 options=["Dashboard", "Upload", "Categorise", "Charts"],
                 icons=["house", "cloud-upload", "tag", "bar-chart"],
-                default_index=1,
+                default_index=2,
                 styles={
                     "container": {
                         "padding": "0!important",
@@ -558,7 +558,6 @@ class PersonalExpenseTracker:
 
                 tx_label_list = []
                 tx_map = {}
-                seen_labels = {}
 
                 if not tx_df.empty:
                     for _, row in tx_df.iterrows():
@@ -572,19 +571,16 @@ class PersonalExpenseTracker:
                         except (ValueError, TypeError):
                             amt_str = str(amt)
 
-                        base_label = f"{trans_date} | {merchant} | {curr} {amt_str}"
-                        count = seen_labels.get(base_label, 0)
-                        seen_labels[base_label] = count + 1
-                        label = base_label + ("\u200b" * count)
-
-                        tx_label_list.append(label)
-                        cat_name = row.get("category_name")
-                        cat_str = (
-                            str(cat_name)
-                            if pd.notna(cat_name) and cat_name
-                            else "Uncategorised"
-                        )
-                        tx_map[label] = (tx_id, cat_str)
+                        label = f"{trans_date} | {merchant} | {curr} {amt_str}"
+                        if label not in tx_map:
+                            tx_label_list.append(label)
+                            cat_name = row.get("category_name")
+                            cat_str = (
+                                str(cat_name)
+                                if pd.notna(cat_name) and cat_name
+                                else ""
+                            )
+                            tx_map[label] = (tx_id, cat_str)
 
                 selected_tx_label = st.selectbox(
                     "Transaction",
