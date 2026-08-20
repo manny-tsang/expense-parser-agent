@@ -46,27 +46,39 @@ The Categorise view layout MUST be organized into **two main rows**:
 
 ---
 
-### 4.3 Section 1: Global Merchant Mapping (`Row 1, Column 1`)
-- **Section Heading**: `st.subheader("Global merchant mapping")`
-- **Description Sub-text**: `st.markdown("Select an uncategorised merchant and a category to create a mapping. Creating this will re-categorise all transactions made at the chosen merchant to the selected category.")`
-- **Form Controls**:
-  - Dropdown 1 Label: `"Merchant"` (Dropdown listing uncategorised merchants with default option `"-- Custom Pattern --"`).
-  - Text Input Label: `"Merchant pattern / keyword"`.
-  - Dropdown 2 Label: `"Category"` (Dropdown listing target categories from `category` table).
-  - Action Button Label: `"Save mapping"` with `type="primary"` (styled red).
-- **Execution**: Inserts pattern into `merchant_mapping` and updates matching transactions in the `transaction` table.
+### 4.3 Section 1: Merchant Mapping (`Row 1, Column 1`)
+- **Container Wrapper**: Enclosed inside `st.container(border=True, height="stretch")`.
+- **Section Heading**: `st.subheader("Merchant mapping")`
+- **Description Text**: `st.markdown("Select an uncategorised merchant and a category to create a mapping. Saving this mapping will re-categorise ALL transactions made at the chosen merchant to the selected category.")`
+- **UI Input Components**:
+  - **Merchant Selector**: `st.selectbox("Merchant", options=["Select a merchant"] + uncat_list)`
+    - Default selection MUST be `"Select a merchant"`.
+  - **Category Selector**: `st.selectbox("Category", options=category_list)`
+  - **Action Button**: `st.button("Save mapping", type="primary")`
+- **Action Handler**:
+  - Validates that a merchant (not equal to `"Select a merchant"`) and a target category are selected.
+  - Executes database update updating `category_id` directly on the `merchant` record for the selected merchant name.
+  - Invokes `st.rerun()` upon successful commit.
 
 ---
 
-### 4.4 Section 2: Transaction-Level Category Mapping (`Row 1, Column 2`)
-- **Section Heading**: `st.subheader("Transaction-level category mapping")`
-- **Description Sub-text**: `st.markdown("Set the category for a specific transaction where the default category mapping may not be correct, e.g. a transaction at BP was for groceries instead of fuel as no fuel was purchased, only water. Fuel being the default category mapping.")`
-- **Form Controls**:
-  - Dropdown 1 Label: `"Transaction"` (Dropdown listing individual transactions with display labels).
-  - Dropdown 2 Label: `"Category"` (Dropdown listing target categories from `category` table).
-  - Action Button Label: `"Update transaction category"` with `type="primary"` (styled red).
-- **Execution**: Updates `category_id` for the specific targeted row in `transaction` table without creating a global mapping rule.
-
+### 4.4 Section 2: Update Transaction Category (`Row 1, Column 2`)
+- **Container Wrapper**: Enclosed inside `st.container(border=True, height="stretch")`.
+- **Section Heading**: `st.subheader("Update transaction category")`
+- **Description Text**: `st.markdown("Set the category for a specific transaction where the default category mapping may not be correct, e.g. a transaction at BP was for groceries instead of fuel as no fuel was purchased, only water. Fuel being the default category mapping.")`
+- **UI Input Components**:
+  - **Transaction Selector**: `st.selectbox("Transaction", options=["Select a transaction"] + tx_label_list)`
+    - Default selection MUST be `"Select a transaction"`.
+    - **Display Label Format**: `<trans_date> | <merchant> | <purchase_currency> <txn_amount>` (e.g., `16-06-2026 | BP RHODES | AUD 45.50`). Must exclude transaction ID, HKD amount, and current category from the label string.
+  - **Category Selection Layout (2 Sub-Columns)**:
+    - **Sub-column 1 (`Current category`)**: `st.text_input("Current category", value=current_cat_name, disabled=True)` (read-only display of selected transaction's current category name).
+    - **Sub-column 2 (`New category`)**: `st.selectbox("New category", options=category_list)` (target category selector).
+  - **Action Button**: `st.button("Update transaction category", type="primary")`
+- **Action Handler**:
+  - Validates that a valid transaction is selected (not `"Select a transaction"`).
+  - Updates `category_id` on the target record in the `transaction` table.
+  - Invokes `st.rerun()` upon successful commit.
+  
 ---
 
 ### 4.5 Section 3: Uncategorised Merchants (`Row 2, Full Width`)
