@@ -70,10 +70,11 @@ The Categorise view layout MUST be organized into **two main rows**:
   - **Transaction Selector**: `st.selectbox("Transaction", options=["Select a transaction"] + tx_label_list, key="selected_tx_dropdown")`
     - Default selection MUST be `"Select a transaction"`.
     - **Display Label Format**: `<trans_date> | <merchant> | <purchase_currency> <txn_amount>` (e.g., `16-06-2026 | BP RHODES | AUD 45.50`). Must exclude transaction ID, HKD amount, and current category from the label string.
+    - **Mapping Implementation Rule**: Do NOT append zero-width spaces (`\u200b`) or modify label strings to deduplicate keys. Map transaction labels using explicit row index offsets or exact string matching so that `tx_map[selected_tx_label]` cleanly resolves to `(transaction_id, category_name)`.
   - **Category Selection Layout (2 Sub-Columns)**:
     - **Dynamic State Lookup**:
       - When `Transaction` is `"Select a transaction"` or empty, `current_cat_name = ""` (or `"N/A"`).
-      - When a transaction is selected, look up its mapped `category_name` (e.g., `"Uncategorised"`, `"Groceries"`, etc.) from the underlying DataFrame or repository method.
+      - When a transaction is selected, look up its mapped `category_name` directly from `tx_map`.
     - **Sub-column 1 (`Current category`)**: `st.text_input("Current category", value=current_cat_name, disabled=True)` (read-only display reflecting the selected transaction's current category name).
     - **Sub-column 2 (`New category`)**: `st.selectbox("New category", options=category_list)` (target category selector).
   - **Action Button**: `st.button("Update transaction category", type="primary")`
