@@ -141,7 +141,7 @@ class HKStatementParser:
         # Persistence to SQLite
         self._persist_to_sqlite(raw_txns, filename)
 
-        # Build final DataFrame
+        # Build final DataFrame with exact required schema
         df_columns = [
             "post_date", "trans_date", "merchant", "country",
             "purchase_currency", "aud_amount", "hkd_amount", "fx_rate"
@@ -179,7 +179,7 @@ class HKStatementParser:
 
         for i, line in enumerate(lines):
             if "Statement date" in line or "結單日" in line:
-                search_block = " ".join(lines[i:i + 3])
+                search_block = " ".join(lines[i:i + 2])
                 match = re.search(r"\b(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\b", search_block, re.IGNORECASE)
                 if match:
                     _, m_str, y_str = match.groups()
@@ -317,7 +317,7 @@ class HKStatementParser:
         }
 
     def _init_db_and_check_log(self, filename: Optional[str] = None) -> None:
-        """Initialize database schema and check statement duplicate log."""
+        """Initialize database schema, seed reference data, and check statement duplicate log."""
         db_dir = os.path.dirname(self.DB_PATH)
         if db_dir:
             os.makedirs(db_dir, exist_ok=True)
@@ -386,8 +386,8 @@ class HKStatementParser:
                 );
             """)
 
-            # Ensure Uncategorised category exists (category_id = 1)
-            self._get_or_create_category(cursor, "Uncategorised")
+            # Baseline reference data seeding
+            self._seed_reference_data(cursor)
 
             if filename:
                 cursor.execute('SELECT id FROM "statement_log" WHERE filename = ?', (filename,))
@@ -395,6 +395,54 @@ class HKStatementParser:
                     raise ValueError(f"Statement '{filename}' has already been processed.")
 
             conn.commit()
+
+    @staticmethod
+    def _seed_reference_data(cursor: sqlite3.Cursor) -> None:
+        """Execute idempotent baseline reference data seeding."""
+        cursor.execute('INSERT OR IGNORE INTO "category" ("id", "category_name") VALUES (1, \'Uncategorised\');')
+
+        categories = [
+            'Automotive', 'Bank Fees', 'Dining & Cafes', 'Fuel', 'Groceries',
+            'Haircut', 'Health & Fitness', 'Medical', 'Shopping & Retail',
+            'Subscriptions', 'Transport', 'Utilities'
+        ]
+        for cat in categories:
+            cursor.execute('INSERT OR IGNORE INTO "category" ("category_name") VALUES (?);', (cat,))
+
+        countries = [
+            (1, 'Austria', 'AT'), (2, 'Australia', 'AU'), (3, 'Belgium', 'BE'), (4, 'Bulgaria', 'BG'),
+            (5, 'Canada', 'CA'), (6, 'China', 'CN'), (7, 'Croatia', 'HR'), (8, 'Cyprus', 'CY'),
+            (9, 'Czech Republic', 'CZ'), (10, 'Denmark', 'DK'), (11, 'Estonia', 'EE'), (12, 'Finland', 'FI'),
+            (13, 'France', 'FR'), (14, 'Germany', 'DE'), (15, 'Greece', 'GR'), (16, 'Hong Kong', 'HK'),
+            (17, 'Hungary', 'HU'), (18, 'India', 'IN'), (19, 'Indonesia', 'ID'), (20, 'Ireland', 'IE'),
+            (21, 'Italy', 'IT'), (22, 'Japan', 'JP'), (23, 'Latvia', 'LV'), (24, 'Lithuania', 'LT'),
+            (25, 'Luxembourg', 'LU'), (26, 'Malaysia', 'MY'), (27, 'Malta', 'MT'), (28, 'Netherlands', 'NL'),
+            (29, 'New Zealand', 'NZ'), (30, 'Philippines', 'PH'), (31, 'Poland', 'PL'), (32, 'Portugal', 'PT'),
+            (33, 'Romania', 'RO'), (34, 'Singapore', 'SG'), (35, 'Slovakia', 'SK'), (36, 'Slovenia', 'SI'),
+            (37, 'South Korea', 'KR'), (38, 'Spain', 'ES'), (39, 'Sweden', 'SE'), (40, 'Switzerland', 'CH'),
+            (41, 'Taiwan', 'TW'), (42, 'Thailand', 'TH'), (43, 'United Kingdom', 'GB'), (44, 'United States', 'US'),
+            (45, 'Vietnam', 'VN')
+        ]
+        for c_id, c_name, c_code in countries:
+            cursor.execute(
+                'INSERT OR IGNORE INTO "country" ("id", "country_name", "country_code") VALUES (?, ?, ?);',
+                (c_id, c_name, c_code)
+            )
+
+        currencies = [
+            (1, 'EUR'), (2, 'AUD'), (3, 'EUR'), (4, 'BGN'), (5, 'CAD'), (6, 'CNY'), (7, 'EUR'), (8, 'EUR'),
+            (9, 'CZK'), (10, 'DKK'), (11, 'EUR'), (12, 'EUR'), (13, 'EUR'), (14, 'EUR'), (15, 'EUR'),
+            (16, 'HKD'), (17, 'HUF'), (18, 'INR'), (19, 'IDR'), (20, 'EUR'), (21, 'EUR'), (22, 'JPY'),
+            (23, 'EUR'), (24, 'EUR'), (25, 'EUR'), (26, 'MYR'), (27, 'EUR'), (28, 'EUR'), (29, 'NZD'),
+            (30, 'PHP'), (31, 'PLN'), (32, 'EUR'), (33, 'RON'), (34, 'SGD'), (35, 'EUR'), (36, 'EUR'),
+            (37, 'KRW'), (38, 'EUR'), (39, 'SEK'), (40, 'CHF'), (41, 'TWD'), (42, 'THB'), (43, 'GBP'),
+            (44, 'USD'), (45, 'VND')
+        ]
+        for curr_c_id, curr_code in currencies:
+            cursor.execute(
+                'INSERT OR IGNORE INTO "currency" ("currency_country_id", "currency_code") VALUES (?, ?);',
+                (curr_c_id, curr_code)
+            )
 
     def _persist_to_sqlite(self, raw_txns: List[Dict[str, Any]], filename: str) -> None:
         """Persist structured transactions and update log in SQLite."""
@@ -620,8 +668,8 @@ class DatabaseRepository:
 
 def parse_statement(
     pdf_path: str,
-    db_path: str = "db/personal-expense-tracker.db",
-    output_csv_path: Optional[str] = None
+    output_csv_path: Optional[str] = None,
+    db_path: str = "db/personal-expense-tracker.db"
 ) -> pd.DataFrame:
     """Entry point function to parse HK Credit Card PDF statements."""
     parser = HKStatementParser(db_path=db_path)
