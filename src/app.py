@@ -301,7 +301,7 @@ class PersonalExpenseTracker:
                 menu_title=None,
                 options=["Dashboard", "Upload", "Categorise", "Charts"],
                 icons=["house", "cloud-upload", "tag", "bar-chart"],
-                default_index=2,
+                default_index=0,
                 styles={
                     "container": {
                         "padding": "0!important",
@@ -479,7 +479,6 @@ class PersonalExpenseTracker:
                 zip(categories_df["category_name"], categories_df["id"])
             )
 
-        # Build uncategorised merchant list & mapping
         uncat_list: List[str] = []
         merchant_id_map: Dict[str, Any] = {}
         m_col = (
@@ -490,7 +489,6 @@ class PersonalExpenseTracker:
             if "merchant_id" in uncat_df.columns:
                 merchant_id_map = dict(zip(uncat_df[m_col], uncat_df["merchant_id"]))
 
-        # Build transaction structures for Row 1, Column 2
         tx_ids: List[Optional[int]] = [None]
         tx_display_map: Dict[Optional[int], str] = {None: "Select a transaction"}
         tx_cat_map: Dict[Optional[int], str] = {None: ""}
@@ -520,10 +518,8 @@ class PersonalExpenseTracker:
                         str(cat_val) if pd.notna(cat_val) and cat_val else ""
                     )
 
-        # Row 1: 2 Columns
         col1, col2 = st.columns(2)
 
-        # Section 1: Merchant Mapping (Row 1, Column 1)
         with col1:
             with st.container(border=True, height="stretch"):
                 st.subheader("Merchant mapping")
@@ -568,7 +564,6 @@ class PersonalExpenseTracker:
                         else:
                             st.error("Failed to update merchant mapping.")
 
-        # Section 2: Update Transaction Category (Row 1, Column 2)
         with col2:
             with st.container(border=True, height="stretch"):
                 st.subheader("Update transaction category")
@@ -594,7 +589,7 @@ class PersonalExpenseTracker:
                         "Current category",
                         value=tx_cat_map.get(selected_tx_id, ""),
                         disabled=True,
-                        key="current_cat_display",
+                        key=f"current_cat_display_{selected_tx_id}",
                     )
 
                 with subcol2:
@@ -628,7 +623,6 @@ class PersonalExpenseTracker:
                         else:
                             st.error("Failed to update transaction category.")
 
-        # Section 3: Uncategorised Merchants (Row 2, Full Width)
         st.subheader("Uncategorised merchants")
         st.markdown(
             "List of merchants currently assigned to 'Uncategorised' requiring mapping."
