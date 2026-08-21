@@ -67,20 +67,18 @@ The Categorise view layout MUST be organized into **two main rows**:
 - **Section Heading**: `st.subheader("Update transaction category")`
 - **Description Text**: `st.markdown("Set the category for a specific transaction where the default category mapping may not be correct, e.g. a transaction at BP was for groceries instead of fuel as no fuel was purchased, only water. Fuel being the default category mapping.")`
 - **UI Input Components**:
-  - **Transaction Selector**: `st.selectbox("Transaction", options=["Select a transaction"] + tx_label_list, key="selected_tx_dropdown")`
-    - Default selection MUST be `"Select a transaction"`.
-    - **Display Label Format**: `<trans_date> | <merchant> | <purchase_currency> <txn_amount>` (e.g., `16-06-2026 | BP RHODES | AUD 45.50`). Must exclude transaction ID, HKD amount, and current category from the label string.
-    - **Mapping Implementation Rule**: Do NOT append zero-width spaces (`\u200b`) or modify label strings to deduplicate keys. Map transaction labels using explicit row index offsets or exact string matching so that `tx_map[selected_tx_label]` cleanly resolves to `(transaction_id, category_name)`.
+  - **Transaction Selector**: `st.selectbox("Transaction", options=tx_options, format_func=lambda x: x["label"] if isinstance(x, dict) else x, key="selected_tx_dropdown")`
+    - Options array MUST contain object dictionaries: `[{"id": None, "label": "Select a transaction", "category": ""}] + tx_object_list`.
+    - Display label format MUST be `<trans_date> | <merchant> | <purchase_currency> <txn_amount>` (e.g., `16-06-2026 | BP RHODES | AUD 45.50`). Must exclude transaction ID, HKD amount, and current category from the string.
   - **Category Selection Layout (2 Sub-Columns)**:
-    - **Dynamic State Lookup**:
-      - When `Transaction` is `"Select a transaction"` or empty, `current_cat_name = ""` (or `"N/A"`).
-      - When a transaction is selected, look up its mapped `category_name` directly from `tx_map`.
-    - **Sub-column 1 (`Current category`)**: `st.text_input("Current category", value=current_cat_name, disabled=True)` (read-only display reflecting the selected transaction's current category name).
-    - **Sub-column 2 (`New category`)**: `st.selectbox("New category", options=category_list)` (target category selector).
+    - **Sub-column 1 (`Current category`)**:
+      - Read-only display: `st.text_input("Current category", value=selected_option.get("category", "Uncategorised"), disabled=True)`.
+      - If `"Select a transaction"` is selected, value MUST be `""`.
+    - **Sub-column 2 (`New category`)**: `st.selectbox("New category", options=category_list)`
   - **Action Button**: `st.button("Update transaction category", type="primary")`
 - **Action Handler**:
-  - Validates that a valid transaction is selected (not `"Select a transaction"`).
-  - Updates `category_id` on the target record in the `transaction` table.
+  - Validates that selected transaction object `id` is not `None`.
+  - Executes `update_transaction_category(selected_option["id"], new_category_id)`.
   - Invokes `st.rerun()` upon successful commit.
 
 ---
