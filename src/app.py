@@ -1,5 +1,6 @@
 import math
 import os
+import re
 import sqlite3
 import tempfile
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -111,6 +112,21 @@ except ImportError:
                 except Exception:
                     return pd.DataFrame(columns=["id", "category_name"])
 
+            def add_category(self, category_name: str) -> bool:
+                if not os.path.exists(self.db_path):
+                    return False
+                try:
+                    with self.get_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            'INSERT INTO "category" ("category_name") VALUES (?)',
+                            (category_name,),
+                        )
+                        conn.commit()
+                        return True
+                except Exception:
+                    return False
+
             def get_uncategorised_merchants(self) -> pd.DataFrame:
                 if not os.path.exists(self.db_path):
                     return pd.DataFrame(
@@ -191,6 +207,24 @@ except ImportError:
 
 
 DB_PATH = "db/personal-expense-tracker.db"
+
+
+@st.dialog("Confirm new category", width="small")
+def confirm_add_category_dialog(
+    category_name: str,
+    repo: DatabaseRepository,
+) -> None:
+    st.write(
+        f"Please confirm the addition of the new '{category_name}' category."
+    )
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Cancel", use_container_width=True, key="dialog_cancel_add_cat"):
+            st.rerun()
+    with col2:
+        if st.button("Add", type="primary", use_container_width=True, key="dialog_confirm_add_cat"):
+            repo.add_category(category_name)
+            st.rerun()
 
 
 @st.dialog("Confirm mapping", width="small")
@@ -560,9 +594,43 @@ class PersonalExpenseTracker:
                         str(cat_val) if pd.notna(cat_val) and cat_val else ""
                     )
 
-        col1, col2 = st.columns(2)
+        # Row 1: 3 Equal Columns
+        col1, col2, col3 = st.columns(3)
 
+        # Section 1: Add new category
         with col1:
+            with st.container(border=True, height="stretch"):
+                st.subheader("Add new category")
+                st.markdown(
+                    "Adding a new category for merchants that do not fit pre-defined "
+                    "categories enables more accurate financial statistics."
+                )
+
+                new_cat_input = st.text_input(
+                    "Category name", max_chars=50, key="new_category_name_input"
+                )
+
+                add_cat_btn = st.button(
+                    "Add category", type="primary", key="add_new_category_btn"
+                )
+
+                if add_cat_btn:
+                    trimmed_cat = new_cat_input.strip()
+                    if not trimmed_cat:
+                        st.error("Category name cannot be empty.")
+                    elif not re.match(r"^[A-Za-z\s&\-\/]+$", trimmed_cat):
+                        st.error(
+                            "Category name contains invalid characters. Only letters, spaces, ampersands (&), hyphens (-), and slashes (/) are allowed."
+                        )
+                    elif any(c.lower() == trimmed_cat.lower() for c in category_list):
+                        st.error(
+                            f"Category '{trimmed_cat}' already exists."
+                        )
+                    else:
+                        confirm_add_category_dialog(trimmed_cat, self.repo)
+
+        # Section 2: Merchant mapping
+        with col2:
             with st.container(border=True, height="stretch"):
                 st.subheader("Merchant mapping")
                 st.markdown(
@@ -607,7 +675,8 @@ class PersonalExpenseTracker:
                             self.repo,
                         )
 
-        with col2:
+        # Section 3: Update transaction category
+        with col3:
             with st.container(border=True, height="stretch"):
                 st.subheader("Update transaction category")
                 st.markdown(
@@ -649,6 +718,7 @@ class PersonalExpenseTracker:
                 )
 
                 if update_tx_btn:
+                    current_cat_name = tx_cat_map.get(selected_tx_id, "")
                     if (
                         selected_tx_id is None
                         or selected_new_cat == "Select a category"
@@ -656,17 +726,21 @@ class PersonalExpenseTracker:
                         st.error(
                             "Please select both a transaction and a new category before updating."
                         )
+                    elif selected_new_cat == current_cat_name:
+                        st.error(
+                            "The selected new category is already assigned to this transaction."
+                        )
                     else:
-                        cur_cat = tx_cat_map.get(selected_tx_id, "")
                         new_c_id = cat_name_to_id.get(selected_new_cat, 1)
                         confirm_tx_category_dialog(
-                            cur_cat,
+                            current_cat_name,
                             selected_new_cat,
                             int(selected_tx_id),
                             new_c_id,
                             self.repo,
                         )
 
+        # Row 2: Full Width - Uncategorised merchants
         st.subheader("Uncategorised merchants")
         st.markdown(
             "List of merchants currently assigned to 'Uncategorised' requiring mapping."
