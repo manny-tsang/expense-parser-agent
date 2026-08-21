@@ -479,7 +479,7 @@ class PersonalExpenseTracker:
                 zip(categories_df["category_name"], categories_df["id"])
             )
 
-        # Build list of uncategorised merchant names & ID mapping
+        # Build uncategorised merchant list & mapping
         uncat_list: List[str] = []
         merchant_id_map: Dict[str, Any] = {}
         m_col = (
@@ -490,39 +490,35 @@ class PersonalExpenseTracker:
             if "merchant_id" in uncat_df.columns:
                 merchant_id_map = dict(zip(uncat_df[m_col], uncat_df["merchant_id"]))
 
-        # Build transaction options array for Row 1, Column 2
-        tx_object_list: List[Dict[str, Any]] = []
-        if not tx_df.empty:
+        # Build transaction structures for Row 1, Column 2
+        tx_ids: List[Optional[int]] = [None]
+        tx_display_map: Dict[Optional[int], str] = {None: "Select a transaction"}
+        tx_cat_map: Dict[Optional[int], str] = {None: ""}
+
+        if not tx_df.empty and "id" in tx_df.columns:
             for _, row in tx_df.iterrows():
-                tx_id = row.get("id")
-                trans_date = str(row.get("trans_date", ""))
-                merchant_name = str(row.get("merchant", ""))
-                curr = str(row.get("purchase_currency") or "HKD")
-                amt = row.get("txn_amount", 0.0)
-                try:
-                    amt_str = f"{float(amt):.2f}"
-                except (ValueError, TypeError):
-                    amt_str = str(amt)
+                tx_id = row["id"]
+                if pd.notna(tx_id):
+                    tx_id_int = int(tx_id)
+                    tx_ids.append(tx_id_int)
 
-                label_str = f"{trans_date} | {merchant_name} | {curr} {amt_str}"
-                cat_name = row.get("category_name")
-                cat_str = (
-                    str(cat_name)
-                    if pd.notna(cat_name) and cat_name
-                    else "Uncategorised"
-                )
+                    trans_date = str(row.get("trans_date", ""))
+                    merchant_name = str(row.get("merchant", ""))
+                    curr = str(row.get("purchase_currency") or "HKD")
+                    amt = row.get("txn_amount", 0.0)
+                    try:
+                        amt_str = f"{float(amt):.2f}"
+                    except (ValueError, TypeError):
+                        amt_str = str(amt)
 
-                tx_object_list.append(
-                    {
-                        "id": tx_id,
-                        "label": label_str,
-                        "category": cat_str,
-                    }
-                )
+                    tx_display_map[
+                        tx_id_int
+                    ] = f"{trans_date} | {merchant_name} | {curr} {amt_str}"
 
-        tx_options: List[Dict[str, Any]] = [
-            {"id": None, "label": "Select a transaction", "category": ""}
-        ] + tx_object_list
+                    cat_val = row.get("category_name")
+                    tx_cat_map[tx_id_int] = (
+                        str(cat_val) if pd.notna(cat_val) and cat_val else ""
+                    )
 
         # Row 1: 2 Columns
         col1, col2 = st.columns(2)
@@ -582,26 +578,21 @@ class PersonalExpenseTracker:
                     "Fuel being the default category mapping."
                 )
 
-                selected_option = st.selectbox(
+                selected_tx_id = st.selectbox(
                     "Transaction",
-                    options=tx_options,
-                    format_func=lambda x: x["label"] if isinstance(x, dict) else str(x),
+                    options=tx_ids,
+                    format_func=lambda tx_id: tx_display_map.get(
+                        tx_id, "Select a transaction"
+                    ),
                     key="selected_tx_dropdown",
                 )
 
                 subcol1, subcol2 = st.columns(2)
 
-                current_cat_value = (
-                    selected_option.get("category", "Uncategorised")
-                    if isinstance(selected_option, dict)
-                    and selected_option.get("id") is not None
-                    else ""
-                )
-
                 with subcol1:
                     st.text_input(
                         "Current category",
-                        value=current_cat_value,
+                        value=tx_cat_map.get(selected_tx_id, ""),
                         disabled=True,
                         key="current_cat_display",
                     )
@@ -620,10 +611,7 @@ class PersonalExpenseTracker:
                 )
 
                 if update_tx_btn:
-                    if (
-                        not isinstance(selected_option, dict)
-                        or selected_option.get("id") is None
-                    ):
+                    if selected_tx_id is None:
                         st.error("Please select a transaction.")
                     elif (
                         not selected_new_cat
@@ -632,9 +620,8 @@ class PersonalExpenseTracker:
                         st.error("Please select a category.")
                     else:
                         new_cat_id = cat_name_to_id[selected_new_cat]
-                        target_tx_id = selected_option["id"]
                         success = self.repo.update_transaction_category(
-                            int(target_tx_id), new_cat_id
+                            int(selected_tx_id), new_cat_id
                         )
                         if success:
                             st.rerun()
