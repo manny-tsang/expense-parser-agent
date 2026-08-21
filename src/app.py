@@ -193,7 +193,7 @@ except ImportError:
 DB_PATH = "db/personal-expense-tracker.db"
 
 
-@st.dialog("Confirm Merchant Mapping")
+@st.dialog("Confirm mapping", width="small")
 def confirm_merchant_mapping_dialog(
     selected_merchant: str,
     selected_category: str,
@@ -202,21 +202,19 @@ def confirm_merchant_mapping_dialog(
     repo: DatabaseRepository,
 ) -> None:
     st.write(
-        f"Are you sure you want to map all transactions for '{selected_merchant}' to '{selected_category}'?"
+        f"Please confirm that all transactions for '{selected_merchant}' are to be mapped to the '{selected_category}' category."
     )
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("Cancel", key="dialog_cancel_global"):
-            st.session_state["show_global_dialog"] = False
+        if st.button("Cancel", use_container_width=True, key="dialog_cancel_global"):
             st.rerun()
     with col2:
-        if st.button("Save", type="primary", key="dialog_save_global"):
+        if st.button("Save", type="primary", use_container_width=True, key="dialog_save_global"):
             repo.update_merchant_category(target_id, cat_id)
-            st.session_state["show_global_dialog"] = False
             st.rerun()
 
 
-@st.dialog("Confirm Transaction Category Update")
+@st.dialog("Confirm transaction category update", width="small")
 def confirm_tx_category_dialog(
     current_cat_name: str,
     selected_new_cat: str,
@@ -225,17 +223,15 @@ def confirm_tx_category_dialog(
     repo: DatabaseRepository,
 ) -> None:
     st.write(
-        f"Are you sure you want to update this transaction's category from '{current_cat_name}' to '{selected_new_cat}'?"
+        f"Please confirm that this transaction's category is to be updated from '{current_cat_name}' to '{selected_new_cat}'?"
     )
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("Cancel", key="dialog_cancel_tx"):
-            st.session_state["show_tx_dialog"] = False
+        if st.button("Cancel", use_container_width=True, key="dialog_cancel_tx"):
             st.rerun()
     with col2:
-        if st.button("Update", type="primary", key="dialog_update_tx"):
+        if st.button("Update", type="primary", use_container_width=True, key="dialog_update_tx"):
             repo.update_transaction_category(selected_tx_id, new_cat_id)
-            st.session_state["show_tx_dialog"] = False
             st.rerun()
 
 
@@ -599,21 +595,17 @@ class PersonalExpenseTracker:
                             "Please select both a merchant and a category before saving."
                         )
                     else:
-                        st.session_state["show_global_dialog"] = True
-
-        if st.session_state.get("show_global_dialog", False):
-            selected_m = st.session_state.get(
-                "global_merchant_select", "Select a merchant"
-            )
-            selected_c = st.session_state.get(
-                "global_category_select", "Select a category"
-            )
-            if selected_m != "Select a merchant" and selected_c != "Select a category":
-                target_id = merchant_id_map.get(selected_m, selected_m)
-                cat_id = cat_name_to_id.get(selected_c, 1)
-                confirm_merchant_mapping_dialog(
-                    selected_m, selected_c, target_id, cat_id, self.repo
-                )
+                        target_id = merchant_id_map.get(
+                            selected_merchant, selected_merchant
+                        )
+                        cat_id = cat_name_to_id.get(selected_category, 1)
+                        confirm_merchant_mapping_dialog(
+                            selected_merchant,
+                            selected_category,
+                            target_id,
+                            cat_id,
+                            self.repo,
+                        )
 
         with col2:
             with st.container(border=True, height="stretch"):
@@ -665,17 +657,15 @@ class PersonalExpenseTracker:
                             "Please select both a transaction and a new category before updating."
                         )
                     else:
-                        st.session_state["show_tx_dialog"] = True
-
-        if st.session_state.get("show_tx_dialog", False):
-            sel_tx_id = st.session_state.get("selected_tx_dropdown")
-            sel_new_c = st.session_state.get("tx_cat_select", "Select a category")
-            if sel_tx_id is not None and sel_new_c != "Select a category":
-                cur_cat = tx_cat_map.get(sel_tx_id, "")
-                new_c_id = cat_name_to_id.get(sel_new_c, 1)
-                confirm_tx_category_dialog(
-                    cur_cat, sel_new_c, int(sel_tx_id), new_c_id, self.repo
-                )
+                        cur_cat = tx_cat_map.get(selected_tx_id, "")
+                        new_c_id = cat_name_to_id.get(selected_new_cat, 1)
+                        confirm_tx_category_dialog(
+                            cur_cat,
+                            selected_new_cat,
+                            int(selected_tx_id),
+                            new_c_id,
+                            self.repo,
+                        )
 
         st.subheader("Uncategorised merchants")
         st.markdown(
