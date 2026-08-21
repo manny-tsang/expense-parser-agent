@@ -56,15 +56,18 @@ The Categorise view layout MUST be organized into **two main rows**:
   - **Category Selector**: `st.selectbox("Category", options=["Select a category"] + category_list, key="global_category_select")`
     - Default selection MUST be `"Select a category"`.
   - **Action Button**: `st.button("Save mapping", type="primary", key="save_global_mapping")`
-- **Validation & Modal Confirmation Logic (`@st.dialog`)**:
+- **Validation & Modal Confirmation Logic (`@st.dialog(title="Confirm mapping", width="small")`)**:
   - When `"Save mapping"` is clicked:
     - Check that `Merchant` != `"Select a merchant"` AND `Category` != `"Select a category"`.
     - If either is unselected, render `st.error("Please select both a merchant and a category before saving.")` and halt.
-    - If both are valid, invoke a modal dialog (`@st.dialog("Confirm Merchant Mapping")`):
-      - Modal body text: `Are you sure you want to map all transactions for '<selected_merchant>' to '<selected_category>'?`
-      - Action buttons in modal (`col1, col2`):
-        - **"Cancel"**: Closes modal and returns to page without changes (`st.rerun()`).
-        - **"Save"**: Executes `update_merchant_category(...)` in the repository and invokes `st.rerun()`.
+    - If both are valid, invoke the modal dialog directly:
+      - **Modal Title**: `"Confirm mapping"`
+      - **Modal Width**: `width="small"`
+      - **Modal Body Text**: `Please confirm that all transactions for '<selected_merchant>' are to be mapped to the '<selected_category>' category.`
+      - **Action Buttons Layout (`col1, col2`)**:
+        - **"Cancel"** (`use_container_width=True`): Closes modal and returns to page without changes (`st.rerun()`).
+        - **"Save"** (`type="primary"`, `use_container_width=True`): Executes `update_merchant_category(...)` in repository and invokes `st.rerun()`.
+      - **State Leak Prevention Rule**: Do NOT store sticky boolean flags in `st.session_state` (e.g., `show_global_dialog = True`) that persist across unrelated widget interactions. Call `@st.dialog` functions directly or reset state flags immediately upon invocation.
 
 ---
 
@@ -85,15 +88,19 @@ The Categorise view layout MUST be organized into **two main rows**:
     - **Sub-column 2 (`New category`)**: `st.selectbox("New category", options=["Select a category"] + category_list, key="tx_cat_select")`
       - Default selection MUST be `"Select a category"`.
   - **Action Button**: `st.button("Update transaction category", type="primary", key="update_tx_category")`
-- **Validation & Modal Confirmation Logic (`@st.dialog`)**:
+- **Validation & Modal Confirmation Logic (`@st.dialog(title="Confirm transaction category update", width="small")`)**:
   - When `"Update transaction category"` is clicked:
     - Check that `selected_tx_id` is not `None` AND `New category` != `"Select a category"`.
     - If either is unselected, render `st.error("Please select both a transaction and a new category before updating.")` and halt.
-    - If both are valid, invoke a modal dialog (`@st.dialog("Confirm Transaction Category Update")`):
-      - Modal body text: `Are you sure you want to update this transaction's category from '<current_cat_name>' to '<selected_new_cat>'?`
-      - Action buttons in modal (`col1, col2`):
-        - **"Cancel"**: Closes modal and returns to page without changes (`st.rerun()`).
-        - **"Update"**: Executes `update_transaction_category(int(selected_tx_id), new_cat_id)` in the repository and invokes `st.rerun()`.
+    - If both are valid, invoke the modal dialog directly:
+      - **Modal Title**: `"Confirm transaction category update"`
+      - **Modal Width**: `width="small"`
+      - **Modal Body Text**: `Please confirm that this transaction's category is to be updated from '<current_cat_name>' to '<selected_new_cat>'?`
+      - **Action Buttons Layout (`col1, col2`)**:
+        - **"Cancel"** (`use_container_width=True`): Closes modal and returns to page without changes (`st.rerun()`).
+        - **"Update"** (`type="primary"`, `use_container_width=True`): Executes `update_transaction_category(int(selected_tx_id), new_cat_id)` in repository and invokes `st.rerun()`.
+      - **State Leak Prevention Rule**: Do NOT store sticky boolean flags in `st.session_state` (e.g., `show_tx_dialog = True`) that persist across unrelated widget interactions. Call `@st.dialog` functions directly or reset state flags immediately upon invocation.
+      
 ---
 
 ### 4.5 Section 3: Uncategorised Merchants (`Row 2, Full Width`)
