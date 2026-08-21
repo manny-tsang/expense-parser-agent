@@ -51,14 +51,20 @@ The Categorise view layout MUST be organized into **two main rows**:
 - **Section Heading**: `st.subheader("Merchant mapping")`
 - **Description Text**: `st.markdown("Select an uncategorised merchant and a category to create a mapping. Saving this mapping will re-categorise ALL transactions made at the chosen merchant to the selected category.")`
 - **UI Input Components**:
-  - **Merchant Selector**: `st.selectbox("Merchant", options=["Select a merchant"] + uncat_list)`
+  - **Merchant Selector**: `st.selectbox("Merchant", options=["Select a merchant"] + uncat_list, key="global_merchant_select")`
     - Default selection MUST be `"Select a merchant"`.
-  - **Category Selector**: `st.selectbox("Category", options=category_list)`
-  - **Action Button**: `st.button("Save mapping", type="primary")`
-- **Action Handler**:
-  - Validates that a merchant (not equal to `"Select a merchant"`) and a target category are selected.
-  - Executes database update updating `category_id` directly on the `merchant` record for the selected merchant name.
-  - Invokes `st.rerun()` upon successful commit.
+  - **Category Selector**: `st.selectbox("Category", options=["Select a category"] + category_list, key="global_category_select")`
+    - Default selection MUST be `"Select a category"`.
+  - **Action Button**: `st.button("Save mapping", type="primary", key="save_global_mapping")`
+- **Validation & Modal Confirmation Logic (`@st.dialog`)**:
+  - When `"Save mapping"` is clicked:
+    - Check that `Merchant` != `"Select a merchant"` AND `Category` != `"Select a category"`.
+    - If either is unselected, render `st.error("Please select both a merchant and a category before saving.")` and halt.
+    - If both are valid, invoke a modal dialog (`@st.dialog("Confirm Merchant Mapping")`):
+      - Modal body text: `Are you sure you want to map all transactions for '<selected_merchant>' to '<selected_category>'?`
+      - Action buttons in modal (`col1, col2`):
+        - **"Cancel"**: Closes modal and returns to page without changes (`st.rerun()`).
+        - **"Save"**: Executes `update_merchant_category(...)` in the repository and invokes `st.rerun()`.
 
 ---
 
@@ -73,15 +79,21 @@ The Categorise view layout MUST be organized into **two main rows**:
     - `tx_cat_map`: Dictionary mapping `tx_id` -> current category name (`category_name`). Placeholder `None` maps to `""`.
   - **Category Selection Layout (2 Sub-Columns)**:
     - **Sub-column 1 (`Current category`)**:
-      - Read-only text input MUST be dynamically keyed or omit static keying to avoid Streamlit state locking:
+      - Read-only text input dynamically keyed to avoid Streamlit state locking:
         `st.text_input("Current category", value=tx_cat_map.get(selected_tx_id, ""), disabled=True, key=f"current_cat_display_{selected_tx_id}")`.
       - When `selected_tx_id` is `None`, value MUST be `""`.
-    - **Sub-column 2 (`New category`)**: `st.selectbox("New category", options=category_list, key="tx_cat_select")`
+    - **Sub-column 2 (`New category`)**: `st.selectbox("New category", options=["Select a category"] + category_list, key="tx_cat_select")`
+      - Default selection MUST be `"Select a category"`.
   - **Action Button**: `st.button("Update transaction category", type="primary", key="update_tx_category")`
-- **Action Handler**:
-  - Validates that `selected_tx_id` is not `None`.
-  - Executes `update_transaction_category(int(selected_tx_id), new_category_id)`.
-  - Invokes `st.rerun()` upon successful commit.
+- **Validation & Modal Confirmation Logic (`@st.dialog`)**:
+  - When `"Update transaction category"` is clicked:
+    - Check that `selected_tx_id` is not `None` AND `New category` != `"Select a category"`.
+    - If either is unselected, render `st.error("Please select both a transaction and a new category before updating.")` and halt.
+    - If both are valid, invoke a modal dialog (`@st.dialog("Confirm Transaction Category Update")`):
+      - Modal body text: `Are you sure you want to update this transaction's category from '<current_cat_name>' to '<selected_new_cat>'?`
+      - Action buttons in modal (`col1, col2`):
+        - **"Cancel"**: Closes modal and returns to page without changes (`st.rerun()`).
+        - **"Update"**: Executes `update_transaction_category(int(selected_tx_id), new_cat_id)` in the repository and invokes `st.rerun()`.
 ---
 
 ### 4.5 Section 3: Uncategorised Merchants (`Row 2, Full Width`)
