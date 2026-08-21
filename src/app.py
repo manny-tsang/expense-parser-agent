@@ -2,7 +2,7 @@ import math
 import os
 import sqlite3
 import tempfile
-from typing import Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import pandas as pd
 import streamlit as st
@@ -318,7 +318,7 @@ class PersonalExpenseTracker:
                     "nav-link-selected": {"background-color": "#31333F"},
                 },
             )
-        return selected
+        return str(selected)
 
     def render_upload_page(self) -> None:
         st.markdown(
@@ -471,13 +471,58 @@ class PersonalExpenseTracker:
         categories_df = self.repo.get_categories()
         tx_df = self.repo.get_transactions_dataframe()
 
-        category_list = []
-        cat_name_to_id = {}
+        category_list: List[str] = []
+        cat_name_to_id: Dict[str, int] = {}
         if not categories_df.empty and "category_name" in categories_df.columns:
             category_list = categories_df["category_name"].dropna().tolist()
             cat_name_to_id = dict(
                 zip(categories_df["category_name"], categories_df["id"])
             )
+
+        # Build list of uncategorised merchant names & ID mapping
+        uncat_list: List[str] = []
+        merchant_id_map: Dict[str, Any] = {}
+        m_col = (
+            "merchant_name" if "merchant_name" in uncat_df.columns else "merchant"
+        )
+        if not uncat_df.empty and m_col in uncat_df.columns:
+            uncat_list = uncat_df[m_col].dropna().tolist()
+            if "merchant_id" in uncat_df.columns:
+                merchant_id_map = dict(zip(uncat_df[m_col], uncat_df["merchant_id"]))
+
+        # Build transaction options array for Row 1, Column 2
+        tx_object_list: List[Dict[str, Any]] = []
+        if not tx_df.empty:
+            for _, row in tx_df.iterrows():
+                tx_id = row.get("id")
+                trans_date = str(row.get("trans_date", ""))
+                merchant_name = str(row.get("merchant", ""))
+                curr = str(row.get("purchase_currency") or "HKD")
+                amt = row.get("txn_amount", 0.0)
+                try:
+                    amt_str = f"{float(amt):.2f}"
+                except (ValueError, TypeError):
+                    amt_str = str(amt)
+
+                label_str = f"{trans_date} | {merchant_name} | {curr} {amt_str}"
+                cat_name = row.get("category_name")
+                cat_str = (
+                    str(cat_name)
+                    if pd.notna(cat_name) and cat_name
+                    else "Uncategorised"
+                )
+
+                tx_object_list.append(
+                    {
+                        "id": tx_id,
+                        "label": label_str,
+                        "category": cat_str,
+                    }
+                )
+
+        tx_options: List[Dict[str, Any]] = [
+            {"id": None, "label": "Select a transaction", "category": ""}
+        ] + tx_object_list
 
         # Row 1: 2 Columns
         col1, col2 = st.columns(2)
@@ -491,23 +536,9 @@ class PersonalExpenseTracker:
                     "Saving this mapping will re-categorise ALL transactions made at the chosen merchant to the selected category."
                 )
 
-                uncat_names = []
-                merchant_id_map = {}
-                m_col = (
-                    "merchant_name"
-                    if "merchant_name" in uncat_df.columns
-                    else "merchant"
-                )
-                if not uncat_df.empty and m_col in uncat_df.columns:
-                    uncat_names = uncat_df[m_col].dropna().tolist()
-                    if "merchant_id" in uncat_df.columns:
-                        merchant_id_map = dict(
-                            zip(uncat_df[m_col], uncat_df["merchant_id"])
-                        )
-
                 selected_merchant = st.selectbox(
                     "Merchant",
-                    options=["Select a merchant"] + uncat_names,
+                    options=["Select a merchant"] + uncat_list,
                     key="global_merchant_select",
                 )
 
@@ -531,15 +562,10 @@ class PersonalExpenseTracker:
                         st.error("Please select a category.")
                     else:
                         cat_id = cat_name_to_id[selected_category]
-                        target_id = merchant_id_map.get(selected_merchant)
-                        if target_id is not None:
-                            success = self.repo.update_merchant_category(
-                                target_id, cat_id
-                            )
-                        else:
-                            success = self.repo.update_merchant_category(
-                                selected_merchant, cat_id
-                            )
+                        target_id = merchant_id_map.get(
+                            selected_merchant, selected_merchant
+                        )
+                        success = self.repo.update_merchant_category(target_id, cat_id)
 
                         if success:
                             st.rerun()
@@ -556,51 +582,26 @@ class PersonalExpenseTracker:
                     "Fuel being the default category mapping."
                 )
 
-                tx_label_list = []
-                tx_map = {}
-
-                if not tx_df.empty:
-                    for _, row in tx_df.iterrows():
-                        tx_id = row.get("id")
-                        trans_date = str(row.get("trans_date", ""))
-                        merchant = str(row.get("merchant", ""))
-                        curr = str(row.get("purchase_currency") or "HKD")
-                        amt = row.get("txn_amount", 0.0)
-                        try:
-                            amt_str = f"{float(amt):.2f}"
-                        except (ValueError, TypeError):
-                            amt_str = str(amt)
-
-                        label = f"{trans_date} | {merchant} | {curr} {amt_str}"
-                        if label not in tx_map:
-                            tx_label_list.append(label)
-                            cat_name = row.get("category_name")
-                            cat_str = (
-                                str(cat_name)
-                                if pd.notna(cat_name) and cat_name
-                                else ""
-                            )
-                            tx_map[label] = (tx_id, cat_str)
-
-                selected_tx_label = st.selectbox(
+                selected_option = st.selectbox(
                     "Transaction",
-                    options=["Select a transaction"] + tx_label_list,
+                    options=tx_options,
+                    format_func=lambda x: x["label"] if isinstance(x, dict) else str(x),
                     key="selected_tx_dropdown",
                 )
 
                 subcol1, subcol2 = st.columns(2)
 
+                current_cat_value = (
+                    selected_option.get("category", "Uncategorised")
+                    if isinstance(selected_option, dict)
+                    and selected_option.get("id") is not None
+                    else ""
+                )
+
                 with subcol1:
-                    if (
-                        selected_tx_label != "Select a transaction"
-                        and selected_tx_label in tx_map
-                    ):
-                        current_cat_name = tx_map[selected_tx_label][1]
-                    else:
-                        current_cat_name = ""
                     st.text_input(
                         "Current category",
-                        value=current_cat_name,
+                        value=current_cat_value,
                         disabled=True,
                         key="current_cat_display",
                     )
@@ -619,7 +620,10 @@ class PersonalExpenseTracker:
                 )
 
                 if update_tx_btn:
-                    if selected_tx_label == "Select a transaction":
+                    if (
+                        not isinstance(selected_option, dict)
+                        or selected_option.get("id") is None
+                    ):
                         st.error("Please select a transaction.")
                     elif (
                         not selected_new_cat
@@ -627,8 +631,8 @@ class PersonalExpenseTracker:
                     ):
                         st.error("Please select a category.")
                     else:
-                        target_tx_id, _ = tx_map[selected_tx_label]
                         new_cat_id = cat_name_to_id[selected_new_cat]
+                        target_tx_id = selected_option["id"]
                         success = self.repo.update_transaction_category(
                             int(target_tx_id), new_cat_id
                         )
@@ -643,11 +647,10 @@ class PersonalExpenseTracker:
             "List of merchants currently assigned to 'Uncategorised' requiring mapping."
         )
 
+        display_uncat_df = pd.DataFrame(columns=["Merchant", "Instances"])
         if not uncat_df.empty:
             m_col = (
-                "merchant_name"
-                if "merchant_name" in uncat_df.columns
-                else "merchant"
+                "merchant_name" if "merchant_name" in uncat_df.columns else "merchant"
             )
             if m_col in uncat_df.columns and "transaction_count" in uncat_df.columns:
                 display_uncat_df = uncat_df[[m_col, "transaction_count"]].copy()
@@ -655,56 +658,52 @@ class PersonalExpenseTracker:
                     columns={m_col: "Merchant", "transaction_count": "Instances"}
                 )
 
-                page_size = 5
-                total_rows = len(display_uncat_df)
-                total_pages = max(1, math.ceil(total_rows / page_size))
+        page_size = 5
+        total_rows = len(display_uncat_df)
+        total_pages = max(1, math.ceil(total_rows / page_size))
 
-                if "uncat_current_page" not in st.session_state:
-                    st.session_state["uncat_current_page"] = 1
+        if "uncat_current_page" not in st.session_state:
+            st.session_state["uncat_current_page"] = 1
 
-                if st.session_state["uncat_current_page"] > total_pages:
-                    st.session_state["uncat_current_page"] = total_pages
-                if st.session_state["uncat_current_page"] < 1:
-                    st.session_state["uncat_current_page"] = 1
+        if st.session_state["uncat_current_page"] > total_pages:
+            st.session_state["uncat_current_page"] = total_pages
+        if st.session_state["uncat_current_page"] < 1:
+            st.session_state["uncat_current_page"] = 1
 
-                current_page = st.session_state["uncat_current_page"]
-                start_idx = (current_page - 1) * page_size
-                end_idx = start_idx + page_size
+        current_page = st.session_state["uncat_current_page"]
+        start_idx = (current_page - 1) * page_size
+        end_idx = start_idx + page_size
 
-                page_df = display_uncat_df.iloc[start_idx:end_idx]
-                st.dataframe(page_df, use_container_width=True, hide_index=True)
+        page_df = display_uncat_df.iloc[start_idx:end_idx]
+        st.dataframe(page_df, use_container_width=True, hide_index=True)
 
-                ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([1, 2, 1])
+        ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([1, 2, 1])
 
-                with ctrl_col1:
-                    if st.button(
-                        "Previous Page",
-                        disabled=(current_page <= 1),
-                        key="uncat_prev_page",
-                        use_container_width=True,
-                    ):
-                        st.session_state["uncat_current_page"] -= 1
-                        st.rerun()
+        with ctrl_col1:
+            if st.button(
+                "Previous Page",
+                disabled=(current_page <= 1),
+                key="uncat_prev_page",
+                use_container_width=True,
+            ):
+                st.session_state["uncat_current_page"] -= 1
+                st.rerun()
 
-                with ctrl_col2:
-                    st.markdown(
-                        f"<div style='text-align: center; padding-top: 0.5rem; color: #FAFAFA;'>Page {current_page} of {total_pages}</div>",
-                        unsafe_allow_html=True,
-                    )
+        with ctrl_col2:
+            st.markdown(
+                f"<div style='text-align: center; padding-top: 0.5rem; color: #FAFAFA;'>Page {current_page} of {total_pages}</div>",
+                unsafe_allow_html=True,
+            )
 
-                with ctrl_col3:
-                    if st.button(
-                        "Next Page",
-                        disabled=(current_page >= total_pages),
-                        key="uncat_next_page",
-                        use_container_width=True,
-                    ):
-                        st.session_state["uncat_current_page"] += 1
-                        st.rerun()
-            else:
-                st.info("No uncategorised merchants found.")
-        else:
-            st.info("No uncategorised merchants found.")
+        with ctrl_col3:
+            if st.button(
+                "Next Page",
+                disabled=(current_page >= total_pages),
+                key="uncat_next_page",
+                use_container_width=True,
+            ):
+                st.session_state["uncat_current_page"] += 1
+                st.rerun()
 
     def run(self) -> None:
         st.set_page_config(
