@@ -68,20 +68,20 @@ The Categorise view layout MUST be organized into **two main rows**:
 - **Description Text**: `st.markdown("Set the category for a specific transaction where the default category mapping may not be correct, e.g. a transaction at BP was for groceries instead of fuel as no fuel was purchased, only water. Fuel being the default category mapping.")`
 - **UI Input Components**:
   - **Transaction Selector**: `st.selectbox("Transaction", options=tx_ids, format_func=lambda tx_id: tx_display_map.get(tx_id, "Select a transaction"), key="selected_tx_dropdown")`
-    - `tx_ids`: List of primitive IDs starting with `None` or `0` for placeholder: `[None] + tx_df["id"].tolist()`.
+    - `tx_ids`: List of primitive IDs starting with `None` for placeholder: `[None] + tx_df["id"].tolist()`.
     - `tx_display_map`: Dictionary mapping `tx_id` -> formatted label string (`<trans_date> | <merchant> | <purchase_currency> <txn_amount>`). Placeholder `None` maps to `"Select a transaction"`.
     - `tx_cat_map`: Dictionary mapping `tx_id` -> current category name (`category_name`). Placeholder `None` maps to `""`.
   - **Category Selection Layout (2 Sub-Columns)**:
     - **Sub-column 1 (`Current category`)**:
-      - Read-only text input: `st.text_input("Current category", value=tx_cat_map.get(selected_tx_id, ""), disabled=True)`.
+      - Read-only text input MUST be dynamically keyed or omit static keying to avoid Streamlit state locking:
+        `st.text_input("Current category", value=tx_cat_map.get(selected_tx_id, ""), disabled=True, key=f"current_cat_display_{selected_tx_id}")`.
       - When `selected_tx_id` is `None`, value MUST be `""`.
-    - **Sub-column 2 (`New category`)**: `st.selectbox("New category", options=category_list)`
-  - **Action Button**: `st.button("Update transaction category", type="primary")`
+    - **Sub-column 2 (`New category`)**: `st.selectbox("New category", options=category_list, key="tx_cat_select")`
+  - **Action Button**: `st.button("Update transaction category", type="primary", key="update_tx_category")`
 - **Action Handler**:
   - Validates that `selected_tx_id` is not `None`.
   - Executes `update_transaction_category(int(selected_tx_id), new_category_id)`.
   - Invokes `st.rerun()` upon successful commit.
-
 ---
 
 ### 4.5 Section 3: Uncategorised Merchants (`Row 2, Full Width`)
