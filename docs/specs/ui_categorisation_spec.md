@@ -67,18 +67,19 @@ The Categorise view layout MUST be organized into **two main rows**:
 - **Section Heading**: `st.subheader("Update transaction category")`
 - **Description Text**: `st.markdown("Set the category for a specific transaction where the default category mapping may not be correct, e.g. a transaction at BP was for groceries instead of fuel as no fuel was purchased, only water. Fuel being the default category mapping.")`
 - **UI Input Components**:
-  - **Transaction Selector**: `st.selectbox("Transaction", options=tx_options, format_func=lambda x: x["label"] if isinstance(x, dict) else x, key="selected_tx_dropdown")`
-    - Options array MUST contain object dictionaries: `[{"id": None, "label": "Select a transaction", "category": ""}] + tx_object_list`.
-    - Display label format MUST be `<trans_date> | <merchant> | <purchase_currency> <txn_amount>` (e.g., `16-06-2026 | BP RHODES | AUD 45.50`). Must exclude transaction ID, HKD amount, and current category from the string.
+  - **Transaction Selector**: `st.selectbox("Transaction", options=tx_ids, format_func=lambda tx_id: tx_display_map.get(tx_id, "Select a transaction"), key="selected_tx_dropdown")`
+    - `tx_ids`: List of primitive IDs starting with `None` or `0` for placeholder: `[None] + tx_df["id"].tolist()`.
+    - `tx_display_map`: Dictionary mapping `tx_id` -> formatted label string (`<trans_date> | <merchant> | <purchase_currency> <txn_amount>`). Placeholder `None` maps to `"Select a transaction"`.
+    - `tx_cat_map`: Dictionary mapping `tx_id` -> current category name (`category_name`). Placeholder `None` maps to `""`.
   - **Category Selection Layout (2 Sub-Columns)**:
     - **Sub-column 1 (`Current category`)**:
-      - Read-only display: `st.text_input("Current category", value=selected_option.get("category", "Uncategorised"), disabled=True)`.
-      - If `"Select a transaction"` is selected, value MUST be `""`.
+      - Read-only text input: `st.text_input("Current category", value=tx_cat_map.get(selected_tx_id, ""), disabled=True)`.
+      - When `selected_tx_id` is `None`, value MUST be `""`.
     - **Sub-column 2 (`New category`)**: `st.selectbox("New category", options=category_list)`
   - **Action Button**: `st.button("Update transaction category", type="primary")`
 - **Action Handler**:
-  - Validates that selected transaction object `id` is not `None`.
-  - Executes `update_transaction_category(selected_option["id"], new_category_id)`.
+  - Validates that `selected_tx_id` is not `None`.
+  - Executes `update_transaction_category(int(selected_tx_id), new_category_id)`.
   - Invokes `st.rerun()` upon successful commit.
 
 ---
