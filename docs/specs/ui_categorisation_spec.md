@@ -21,10 +21,12 @@ SO THAT I can accurately categorize recurring merchants globally while retaining
 ### 3.1 Database Schema Reference (`db/personal-expense-tracker.db`)
 The schema relies on the canonical `merchant` table created during parser initialization:
 
+- **`category` Table**: Stores category entities (`id`, `category_name`).
 - **`merchant` Table**: Stores unique merchant entities (`id`, `merchant_name`, `category_id`).
 - **`transaction` Table**: Links each record to `merchant.id` via `merchant_id`. `transaction.category_id` serves purely as an optional explicit override (`NULL` indicates no override).
 
 ### 3.2 UI Query Contracts (`src/app.py`)
+- **Add New Category**: Inserts a new unique record into the `category` table via `INSERT INTO "category" ("category_name") VALUES (?)`.
 - **Global Merchant Mapping**: Updates `category_id` directly on the `merchant` record via `UPDATE merchant SET category_id = ? WHERE id = ?`.
 - **Transaction Override**: Updates `category_id` directly on the specific `transaction` row via `UPDATE "transaction" SET category_id = ? WHERE id = ?`.
 
@@ -38,15 +40,39 @@ Expand sidebar navigation in `render_sidebar()` to include the new view:
 ### 4.2 Categorise Page Two-Row Layout Structure
 The Categorise view layout MUST be organized into **two main rows**:
 
-- **Row 1 (2 Columns)**:
-  - **Column 1**: `Global merchant mapping` section.
-  - **Column 2**: `Transaction-level category mapping` section.
+- **Row 1 (3 Equal Columns)**:
+  - **Column 1**: `Add new category` section.
+  - **Column 2**: `Merchant mapping` section.
+  - **Column 3**: `Update transaction category` section.
 - **Row 2 (Full Width)**:
   - `Uncategorised merchants` section listing table across full page width.
 
 ---
 
-### 4.3 Section 1: Merchant Mapping (`Row 1, Column 1`)
+### 4.3 Section 1: Add New Category (`Row 1, Column 1`)
+- **Container Wrapper**: Enclosed inside `st.container(border=True, height="stretch")`.
+- **Section Heading**: `st.subheader("Add new category")`
+- **Description Text**: `st.markdown("Adding a new category for merchants that do not fit pre-defined categories enables more accurate financial statistics.")`
+- **UI Input Components**:
+  - **Category Name Input**: `st.text_input("Category name", max_chars=50, key="new_category_name_input")`
+  - **Action Button**: `st.button("Add category", type="primary", key="add_new_category_btn")`
+- **Validation Rules (Executed on Button Click)**:
+  1. **Non-Empty Check**: Input must not be empty or whitespace-only.
+  2. **Character Set Restrictions**: Input must contain ONLY letters, spaces, ampersands (`&`), hyphens (`-`), or slashes (`/`). (Regex: `^[A-Za-z\s&\-\/]+$`).
+  3. **Duplicate Check**: Case-insensitive check against existing database category names.
+  - If any validation fails, render `st.error(...)` with the specific error message and halt.
+- **Modal Confirmation (`@st.dialog(title="Confirm new category", width="small")`)**:
+  - When `"Add category"` passes validation, trigger the confirmation dialog directly:
+    - **Modal Title**: `"Confirm new category"`
+    - **Modal Width**: `width="small"`
+    - **Modal Body Text**: `Please confirm the addition of the new '<category_name>' category.`
+    - **Action Buttons (`col1, col2`)**:
+      - **"Cancel"** (`use_container_width=True`): Closes modal and returns to page without changes (`st.rerun()`).
+      - **"Add"** (`type="primary"`, `use_container_width=True`): Inserts new record into `category` table and invokes `st.rerun()`.
+
+---
+
+### 4.4 Section 2: Merchant Mapping (`Row 1, Column 2`)
 - **Container Wrapper**: Enclosed inside `st.container(border=True, height="stretch")`.
 - **Section Heading**: `st.subheader("Merchant mapping")`
 - **Description Text**: `st.markdown("Select an uncategorised merchant and a category to create a mapping. Saving this mapping will re-categorise ALL transactions made at the chosen merchant to the selected category.")`
@@ -71,7 +97,7 @@ The Categorise view layout MUST be organized into **two main rows**:
 
 ---
 
-### 4.4 Section 2: Update Transaction Category (`Row 1, Column 2`)
+### 4.5 Section 3: Update Transaction Category (`Row 1, Column 3`)
 - **Container Wrapper**: Enclosed inside `st.container(border=True, height="stretch")`.
 - **Section Heading**: `st.subheader("Update transaction category")`
 - **Description Text**: `st.markdown("Set the category for a specific transaction where the default category mapping may not be correct, e.g. a transaction at BP was for groceries instead of fuel as no fuel was purchased, only water. Fuel being the default category mapping.")`
@@ -90,9 +116,9 @@ The Categorise view layout MUST be organized into **two main rows**:
   - **Action Button**: `st.button("Update transaction category", type="primary", key="update_tx_category")`
 - **Validation & Modal Confirmation Logic (`@st.dialog(title="Confirm transaction category update", width="small")`)**:
   - When `"Update transaction category"` is clicked:
-    - Check that `selected_tx_id` is not `None` AND `New category` != `"Select a category"`.
-    - If either is unselected, render `st.error("Please select both a transaction and a new category before updating.")` and halt.
-    - If both are valid, invoke the modal dialog directly:
+    - **Selection Check**: Validate that `selected_tx_id` is not `None` AND `New category` != `"Select a category"`. If either is unselected, render `st.error("Please select both a transaction and a new category before updating.")` and halt.
+    - **Same Category Check**: Check if `selected_new_cat` is equal to `current_cat_name`. If equal, render `st.error("The selected new category is already assigned to this transaction.")` and halt.
+    - If all validations pass, invoke the modal dialog directly:
       - **Modal Title**: `"Confirm transaction category update"`
       - **Modal Width**: `width="small"`
       - **Modal Body Text**: `Please confirm that this transaction's category is to be updated from '<current_cat_name>' to '<selected_new_cat>'?`
@@ -100,10 +126,10 @@ The Categorise view layout MUST be organized into **two main rows**:
         - **"Cancel"** (`use_container_width=True`): Closes modal and returns to page without changes (`st.rerun()`).
         - **"Update"** (`type="primary"`, `use_container_width=True`): Executes `update_transaction_category(int(selected_tx_id), new_cat_id)` in repository and invokes `st.rerun()`.
       - **State Leak Prevention Rule**: Do NOT store sticky boolean flags in `st.session_state` (e.g., `show_tx_dialog = True`) that persist across unrelated widget interactions. Call `@st.dialog` functions directly or reset state flags immediately upon invocation.
-      
+
 ---
 
-### 4.5 Section 3: Uncategorised Merchants (`Row 2, Full Width`)
+### 4.6 Section 4: Uncategorised Merchants (`Row 2, Full Width`)
 - **Section Heading**: `st.subheader("Uncategorised merchants")`
 - **Description Sub-text**: `st.markdown("List of merchants currently assigned to 'Uncategorised' requiring mapping.")`
 - **Query Strategy**: Group transactions by `merchant_id` where `m.category_id = 1` and `t.category_id IS NULL`.
@@ -187,3 +213,26 @@ Scenario 1: Individual Transaction Category Update
 GIVEN I am inspecting the transactions override control in Streamlit  
 WHEN I change the category of a specific transaction row and submit the change  
 THEN only that single row's `category_id` in the `transaction` table is updated while leaving the parent `merchant` default category unchanged.
+
+---
+
+### Story 4
+**Target Epic**: `PET-3`  
+**Title**: `[ UI | PY | DB ] Dynamic Custom Category Creation & Validation`
+
+**Description**:
+AS A Personal Tracker User  
+I WANT TO create new, custom spending categories directly from the Categorise UI  
+SO THAT I can accurately classify merchants and transactions that do not fit into the default pre-defined categories.
+
+Acceptance Criteria:
+
+Scenario 1: Custom Category Creation & Input Validation  
+GIVEN I am on the Categorise view in Streamlit  
+WHEN I enter a valid new category name (max 50 characters, letters/spaces/ampersands/hyphens/slashes only) and click 'Add category'  
+THEN a modal confirmation dialog is presented asking for confirmation before inserting the new record into the `category` table.
+
+Scenario 2: Duplicate & Special Character Guardrails  
+GIVEN I attempt to add a category name that already exists (case-insensitive) or contains invalid special characters  
+WHEN I click 'Add category'  
+THEN an inline error message is displayed and database insertion is prevented.
