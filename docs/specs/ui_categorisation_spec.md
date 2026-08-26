@@ -62,6 +62,8 @@ The Categorise view layout MUST be organized into **two main rows**:
   3. **Duplicate Check**: Case-insensitive check against existing database category names.
   - If any validation fails, render `st.error(...)` with the specific error message and halt.
 - **Modal Confirmation (`@st.dialog(title="Confirm new category", width="small")`)**:
+  - Signature: `def confirm_add_category_dialog(category_name: str) -> None:`
+  - **Repository Instantiation**: Must instantiate `DatabaseRepository(DB_PATH)` directly inside the dialog function body prior to calling database methods (e.g., `repo = DatabaseRepository(DB_PATH)`). Do NOT pass `DatabaseRepository` instance objects as parameters into `@st.dialog` functions.
   - When `"Add category"` passes validation, trigger the confirmation dialog directly:
     - **Modal Title**: `"Confirm new category"`
     - **Modal Width**: `width="small"`
@@ -83,6 +85,8 @@ The Categorise view layout MUST be organized into **two main rows**:
     - Default selection MUST be `"Select a category"`.
   - **Action Button**: `st.button("Save mapping", type="primary", key="save_global_mapping")`
 - **Validation & Modal Confirmation Logic (`@st.dialog(title="Confirm mapping", width="small")`)**:
+  - Signature: `def confirm_merchant_mapping_dialog(selected_merchant: str, selected_category: str, target_id: Any, cat_id: int) -> None:`
+  - **Repository Instantiation**: Must instantiate `DatabaseRepository(DB_PATH)` directly inside the dialog function body.
   - When `"Save mapping"` is clicked:
     - Check that `Merchant` != `"Select a merchant"` AND `Category` != `"Select a category"`.
     - If either is unselected, render `st.error("Please select both a merchant and a category before saving.")` and halt.
@@ -115,6 +119,8 @@ The Categorise view layout MUST be organized into **two main rows**:
       - Default selection MUST be `"Select a category"`.
   - **Action Button**: `st.button("Update transaction category", type="primary", key="update_tx_category")`
 - **Validation & Modal Confirmation Logic (`@st.dialog(title="Confirm transaction category update", width="small")`)**:
+  - Signature: `def confirm_tx_category_dialog(current_cat_name: str, selected_new_cat: str, selected_tx_id: int, new_cat_id: int) -> None:`
+  - **Repository Instantiation**: Must instantiate `DatabaseRepository(DB_PATH)` directly inside the dialog function body.
   - When `"Update transaction category"` is clicked:
     - **Selection Check**: Validate that `selected_tx_id` is not `None` AND `New category` != `"Select a category"`. If either is unselected, render `st.error("Please select both a transaction and a new category before updating.")` and halt.
     - **Same Category Check**: Check if `selected_new_cat` is equal to `current_cat_name`. If equal, render `st.error("'Current category' and 'New category' must not be the same.")` and halt.
