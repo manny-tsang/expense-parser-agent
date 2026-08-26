@@ -75,7 +75,7 @@ The Categorise view layout MUST be organized into **two main rows**:
 ### 4.4 Section 2: Merchant Mapping (`Row 1, Column 2`)
 - **Container Wrapper**: Enclosed inside `st.container(border=True, height="stretch")`.
 - **Section Heading**: `st.subheader("Merchant mapping")`
-- **Description Text**: `st.markdown("Select an uncategorised merchant and a category to create a mapping. Saving this mapping will re-categorise ALL transactions made at the chosen merchant to the selected category.")`
+- **Description Text**: `st.markdown("Select an uncategorised merchant and a category to create a new mapping, re-categorising ALL transactions made at the selected merchant.")`
 - **UI Input Components**:
   - **Merchant Selector**: `st.selectbox("Merchant", options=["Select a merchant"] + uncat_list, key="global_merchant_select")`
     - Default selection MUST be `"Select a merchant"`.
@@ -100,7 +100,7 @@ The Categorise view layout MUST be organized into **two main rows**:
 ### 4.5 Section 3: Update Transaction Category (`Row 1, Column 3`)
 - **Container Wrapper**: Enclosed inside `st.container(border=True, height="stretch")`.
 - **Section Heading**: `st.subheader("Update transaction category")`
-- **Description Text**: `st.markdown("Set the category for a specific transaction where the default category mapping may not be correct, e.g. a transaction at BP was for groceries instead of fuel as no fuel was purchased, only water. Fuel being the default category mapping.")`
+- **Description Text**: `st.markdown("Update the category for a single transaction where the default category is not suitable. Example: 'BP' transaction not for 'Fuel'.")`
 - **UI Input Components**:
   - **Transaction Selector**: `st.selectbox("Transaction", options=tx_ids, format_func=lambda tx_id: tx_display_map.get(tx_id, "Select a transaction"), key="selected_tx_dropdown")`
     - `tx_ids`: List of primitive IDs starting with `None` for placeholder: `[None] + tx_df["id"].tolist()`.
@@ -117,7 +117,7 @@ The Categorise view layout MUST be organized into **two main rows**:
 - **Validation & Modal Confirmation Logic (`@st.dialog(title="Confirm transaction category update", width="small")`)**:
   - When `"Update transaction category"` is clicked:
     - **Selection Check**: Validate that `selected_tx_id` is not `None` AND `New category` != `"Select a category"`. If either is unselected, render `st.error("Please select both a transaction and a new category before updating.")` and halt.
-    - **Same Category Check**: Check if `selected_new_cat` is equal to `current_cat_name`. If equal, render `st.error("The selected new category is already assigned to this transaction.")` and halt.
+    - **Same Category Check**: Check if `selected_new_cat` is equal to `current_cat_name`. If equal, render `st.error("'Current category' and 'New category' must not be the same.")` and halt.
     - If all validations pass, invoke the modal dialog directly:
       - **Modal Title**: `"Confirm transaction category update"`
       - **Modal Width**: `width="small"`

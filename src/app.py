@@ -634,8 +634,7 @@ class PersonalExpenseTracker:
             with st.container(border=True, height="stretch"):
                 st.subheader("Merchant mapping")
                 st.markdown(
-                    "Select an uncategorised merchant and a category to create a mapping. "
-                    "Saving this mapping will re-categorise ALL transactions made at the chosen merchant to the selected category."
+                    "Select an uncategorised merchant and a category to create a new mapping, re-categorising ALL transactions made at the selected merchant."
                 )
 
                 selected_merchant = st.selectbox(
@@ -680,9 +679,7 @@ class PersonalExpenseTracker:
             with st.container(border=True, height="stretch"):
                 st.subheader("Update transaction category")
                 st.markdown(
-                    "Set the category for a specific transaction where the default category mapping may not be correct, "
-                    "e.g. a transaction at BP was for groceries instead of fuel as no fuel was purchased, only water. "
-                    "Fuel being the default category mapping."
+                    "Update the category for a single transaction where the default category is not suitable. Example: 'BP' transaction not for 'Fuel'."
                 )
 
                 selected_tx_id = st.selectbox(
@@ -728,7 +725,7 @@ class PersonalExpenseTracker:
                         )
                     elif selected_new_cat == current_cat_name:
                         st.error(
-                            "The selected new category is already assigned to this transaction."
+                            "'Current category' and 'New category' must not be the same."
                         )
                     else:
                         new_c_id = cat_name_to_id.get(selected_new_cat, 1)
