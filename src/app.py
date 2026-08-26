@@ -210,19 +210,17 @@ DB_PATH = "db/personal-expense-tracker.db"
 
 
 @st.dialog("Confirm new category", width="small")
-def confirm_add_category_dialog(
-    category_name: str,
-    repo: DatabaseRepository,
-) -> None:
-    st.write(
-        f"Please confirm the addition of the new '{category_name}' category."
-    )
+def confirm_add_category_dialog(category_name: str) -> None:
+    st.write(f"Please confirm the addition of the new '{category_name}' category.")
     col1, col2 = st.columns(2)
     with col1:
         if st.button("Cancel", use_container_width=True, key="dialog_cancel_add_cat"):
             st.rerun()
     with col2:
-        if st.button("Add", type="primary", use_container_width=True, key="dialog_confirm_add_cat"):
+        if st.button(
+            "Add", type="primary", use_container_width=True, key="dialog_confirm_add_cat"
+        ):
+            repo = DatabaseRepository(DB_PATH)
             repo.add_category(category_name)
             st.rerun()
 
@@ -233,7 +231,6 @@ def confirm_merchant_mapping_dialog(
     selected_category: str,
     target_id: Any,
     cat_id: int,
-    repo: DatabaseRepository,
 ) -> None:
     st.write(
         f"Please confirm that all transactions for '{selected_merchant}' are to be mapped to the '{selected_category}' category."
@@ -243,7 +240,10 @@ def confirm_merchant_mapping_dialog(
         if st.button("Cancel", use_container_width=True, key="dialog_cancel_global"):
             st.rerun()
     with col2:
-        if st.button("Save", type="primary", use_container_width=True, key="dialog_save_global"):
+        if st.button(
+            "Save", type="primary", use_container_width=True, key="dialog_save_global"
+        ):
+            repo = DatabaseRepository(DB_PATH)
             repo.update_merchant_category(target_id, cat_id)
             st.rerun()
 
@@ -254,7 +254,6 @@ def confirm_tx_category_dialog(
     selected_new_cat: str,
     selected_tx_id: int,
     new_cat_id: int,
-    repo: DatabaseRepository,
 ) -> None:
     st.write(
         f"Please confirm that this transaction's category is to be updated from '{current_cat_name}' to '{selected_new_cat}'?"
@@ -264,7 +263,10 @@ def confirm_tx_category_dialog(
         if st.button("Cancel", use_container_width=True, key="dialog_cancel_tx"):
             st.rerun()
     with col2:
-        if st.button("Update", type="primary", use_container_width=True, key="dialog_update_tx"):
+        if st.button(
+            "Update", type="primary", use_container_width=True, key="dialog_update_tx"
+        ):
+            repo = DatabaseRepository(DB_PATH)
             repo.update_transaction_category(selected_tx_id, new_cat_id)
             st.rerun()
 
@@ -623,11 +625,9 @@ class PersonalExpenseTracker:
                             "Category name contains invalid characters. Only letters, spaces, ampersands (&), hyphens (-), and slashes (/) are allowed."
                         )
                     elif any(c.lower() == trimmed_cat.lower() for c in category_list):
-                        st.error(
-                            f"Category '{trimmed_cat}' already exists."
-                        )
+                        st.error(f"Category '{trimmed_cat}' already exists.")
                     else:
-                        confirm_add_category_dialog(trimmed_cat, self.repo)
+                        confirm_add_category_dialog(trimmed_cat)
 
         # Section 2: Merchant mapping
         with col2:
@@ -671,7 +671,6 @@ class PersonalExpenseTracker:
                             selected_category,
                             target_id,
                             cat_id,
-                            self.repo,
                         )
 
         # Section 3: Update transaction category
@@ -734,7 +733,6 @@ class PersonalExpenseTracker:
                             selected_new_cat,
                             int(selected_tx_id),
                             new_c_id,
-                            self.repo,
                         )
 
         # Row 2: Full Width - Uncategorised merchants
