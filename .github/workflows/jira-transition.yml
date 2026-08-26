@@ -19,11 +19,13 @@ jobs:
           JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
           JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
 
-      - name: Find Jira Issue Key
+      # Extract ALL unique PET keys (e.g. PET-12 PET-13 PET-14) into a space-separated string
+      - name: Extract All Jira Issue Keys
         id: jira_keys
-        uses: atlassian/gajira-find-issue-key@v3
-        with:
-          string: ${{ github.event.head_commit.message }}
+        run: |
+          KEYS=$(echo "${{ github.event.head_commit.message }}" | grep -oE 'PET-[0-9]+' | sort -u | tr '\n' ' ' | xargs)
+          echo "found_keys=$KEYS" >> $GITHUB_OUTPUT
+          echo "Extracted Jira Keys: $KEYS"
 
       # =========================================================================
       # EPIC TRANSITIONS
@@ -31,19 +33,21 @@ jobs:
 
       # EPIC: NEW -> IN PROGRESS
       - name: "Epic Transition: In Progress"
-        if: steps.jira_keys.outputs.issue && contains(github.event.head_commit.message, 'implementing')
-        uses: atlassian/gajira-transition@v3
-        with:
-          issue: ${{ steps.jira_keys.outputs.issue }}
-          transition: "In Progress"
+        if: steps.jira_keys.outputs.found_keys != '' && contains(github.event.head_commit.message, 'implementing')
+        run: |
+          for KEY in ${{ steps.jira_keys.outputs.found_keys }}; do
+            echo "Transitioning $KEY to 'In Progress'..."
+            npx @atlassian/gajira-cli transition --issue "$KEY" --transition "In Progress" || true
+          done
 
       # EPIC: IN PROGRESS -> DONE
       - name: "Epic Transition: Done"
-        if: steps.jira_keys.outputs.issue && (contains(github.event.head_commit.message, 'epiccompleted') || contains(github.event.head_commit.message, 'epicdone'))
-        uses: atlassian/gajira-transition@v3
-        with:
-          issue: ${{ steps.jira_keys.outputs.issue }}
-          transition: "Done"
+        if: steps.jira_keys.outputs.found_keys != '' && (contains(github.event.head_commit.message, 'epiccompleted') || contains(github.event.head_commit.message, 'epicdone'))
+        run: |
+          for KEY in ${{ steps.jira_keys.outputs.found_keys }}; do
+            echo "Transitioning $KEY to 'Done'..."
+            npx @atlassian/gajira-cli transition --issue "$KEY" --transition "Done" || true
+          done
 
       # =========================================================================
       # STORY TRANSITIONS
@@ -51,80 +55,90 @@ jobs:
 
       # 1. NEW -> IN DESIGN
       - name: "Transition: Define"
-        if: steps.jira_keys.outputs.issue && contains(github.event.head_commit.message, 'design')
-        uses: atlassian/gajira-transition@v3
-        with:
-          issue: ${{ steps.jira_keys.outputs.issue }}
-          transition: "Define"
+        if: steps.jira_keys.outputs.found_keys != '' && contains(github.event.head_commit.message, 'design')
+        run: |
+          for KEY in ${{ steps.jira_keys.outputs.found_keys }}; do
+            echo "Transitioning $KEY to 'Define'..."
+            npx @atlassian/gajira-cli transition --issue "$KEY" --transition "Define" || true
+          done
 
       # 2. IN DESIGN -> READY FOR DEV
       - name: "Transition: Defined"
-        if: steps.jira_keys.outputs.issue && contains(github.event.head_commit.message, 'defined')
-        uses: atlassian/gajira-transition@v3
-        with:
-          issue: ${{ steps.jira_keys.outputs.issue }}
-          transition: "Defined"
+        if: steps.jira_keys.outputs.found_keys != '' && contains(github.event.head_commit.message, 'defined')
+        run: |
+          for KEY in ${{ steps.jira_keys.outputs.found_keys }}; do
+            echo "Transitioning $KEY to 'Defined'..."
+            npx @atlassian/gajira-cli transition --issue "$KEY" --transition "Defined" || true
+          done
 
       # 3. READY FOR DEV -> IN DEV
       - name: "Transition: In Sprint"
-        if: steps.jira_keys.outputs.issue && (contains(github.event.head_commit.message, 'start') || contains(github.event.head_commit.message, 'indev'))
-        uses: atlassian/gajira-transition@v3
-        with:
-          issue: ${{ steps.jira_keys.outputs.issue }}
-          transition: "In Sprint"
+        if: steps.jira_keys.outputs.found_keys != '' && (contains(github.event.head_commit.message, 'start') || contains(github.event.head_commit.message, 'indev'))
+        run: |
+          for KEY in ${{ steps.jira_keys.outputs.found_keys }}; do
+            echo "Transitioning $KEY to 'In Sprint'..."
+            npx @atlassian/gajira-cli transition --issue "$KEY" --transition "In Sprint" || true
+          done
 
       # 4. IN DEV -> DEV COMPLETED
       - name: "Transition: Engineered"
-        if: steps.jira_keys.outputs.issue && (contains(github.event.head_commit.message, 'engineered') || contains(github.event.head_commit.message, 'devcomplete'))
-        uses: atlassian/gajira-transition@v3
-        with:
-          issue: ${{ steps.jira_keys.outputs.issue }}
-          transition: "Engineered"
+        if: steps.jira_keys.outputs.found_keys != '' && (contains(github.event.head_commit.message, 'engineered') || contains(github.event.head_commit.message, 'devcomplete'))
+        run: |
+          for KEY in ${{ steps.jira_keys.outputs.found_keys }}; do
+            echo "Transitioning $KEY to 'Engineered'..."
+            npx @atlassian/gajira-cli transition --issue "$KEY" --transition "Engineered" || true
+          done
 
       # 5. DEV COMPLETED -> READY FOR TEST
       - name: "Transition: Assigned"
-        if: steps.jira_keys.outputs.issue && (contains(github.event.head_commit.message, 'readyfortest') || contains(github.event.head_commit.message, 'testready'))
-        uses: atlassian/gajira-transition@v3
-        with:
-          issue: ${{ steps.jira_keys.outputs.issue }}
-          transition: "Assigned"
+        if: steps.jira_keys.outputs.found_keys != '' && (contains(github.event.head_commit.message, 'readyfortest') || contains(github.event.head_commit.message, 'testready'))
+        run: |
+          for KEY in ${{ steps.jira_keys.outputs.found_keys }}; do
+            echo "Transitioning $KEY to 'Assigned'..."
+            npx @atlassian/gajira-cli transition --issue "$KEY" --transition "Assigned" || true
+          done
 
       # 6. READY FOR TEST -> IN TESTING
       - name: "Transition: Test Cases Defined"
-        if: steps.jira_keys.outputs.issue && contains(github.event.head_commit.message, 'testing')
-        uses: atlassian/gajira-transition@v3
-        with:
-          issue: ${{ steps.jira_keys.outputs.issue }}
-          transition: "Test Cases Defined"
+        if: steps.jira_keys.outputs.found_keys != '' && contains(github.event.head_commit.message, 'testing')
+        run: |
+          for KEY in ${{ steps.jira_keys.outputs.found_keys }}; do
+            echo "Transitioning $KEY to 'Test Cases Defined'..."
+            npx @atlassian/gajira-cli transition --issue "$KEY" --transition "Test Cases Defined" || true
+          done
 
       # 7. IN TESTING -> TEST COMPLETED
       - name: "Transition: Test Cases Cleared"
-        if: steps.jira_keys.outputs.issue && (contains(github.event.head_commit.message, 'cleared') || contains(github.event.head_commit.message, 'testcomplete'))
-        uses: atlassian/gajira-transition@v3
-        with:
-          issue: ${{ steps.jira_keys.outputs.issue }}
-          transition: "Test Cases Cleared"
+        if: steps.jira_keys.outputs.found_keys != '' && (contains(github.event.head_commit.message, 'cleared') || contains(github.event.head_commit.message, 'testcomplete'))
+        run: |
+          for KEY in ${{ steps.jira_keys.outputs.found_keys }}; do
+            echo "Transitioning $KEY to 'Test Cases Cleared'..."
+            npx @atlassian/gajira-cli transition --issue "$KEY" --transition "Test Cases Cleared" || true
+          done
 
       # 8. TEST COMPLETED -> READY FOR BUILD
       - name: "Transition: Awaiting Build"
-        if: steps.jira_keys.outputs.issue && (contains(github.event.head_commit.message, 'awaitingbuild') || contains(github.event.head_commit.message, 'readyforbuild'))
-        uses: atlassian/gajira-transition@v3
-        with:
-          issue: ${{ steps.jira_keys.outputs.issue }}
-          transition: "Awaiting Build"
+        if: steps.jira_keys.outputs.found_keys != '' && (contains(github.event.head_commit.message, 'awaitingbuild') || contains(github.event.head_commit.message, 'readyforbuild'))
+        run: |
+          for KEY in ${{ steps.jira_keys.outputs.found_keys }}; do
+            echo "Transitioning $KEY to 'Awaiting Build'..."
+            npx @atlassian/gajira-cli transition --issue "$KEY" --transition "Awaiting Build" || true
+          done
 
       # 9. READY FOR BUILD -> IN BUILD
       - name: "Transition: Build Assigned"
-        if: steps.jira_keys.outputs.issue && contains(github.event.head_commit.message, 'inbuild')
-        uses: atlassian/gajira-transition@v3
-        with:
-          issue: ${{ steps.jira_keys.outputs.issue }}
-          transition: "Build Assigned"
+        if: steps.jira_keys.outputs.found_keys != '' && contains(github.event.head_commit.message, 'inbuild')
+        run: |
+          for KEY in ${{ steps.jira_keys.outputs.found_keys }}; do
+            echo "Transitioning $KEY to 'Build Assigned'..."
+            npx @atlassian/gajira-cli transition --issue "$KEY" --transition "Build Assigned" || true
+          done
 
       # 10. IN BUILD -> DONE
       - name: "Transition: Deployed"
-        if: steps.jira_keys.outputs.issue && (contains(github.event.head_commit.message, 'deployed') || contains(github.event.head_commit.message, 'done'))
-        uses: atlassian/gajira-transition@v3
-        with:
-          issue: ${{ steps.jira_keys.outputs.issue }}
-          transition: "Deployed"
+        if: steps.jira_keys.outputs.found_keys != '' && (contains(github.event.head_commit.message, 'deployed') || contains(github.event.head_commit.message, 'done'))
+        run: |
+          for KEY in ${{ steps.jira_keys.outputs.found_keys }}; do
+            echo "Transitioning $KEY to 'Deployed'..."
+            npx @atlassian/gajira-cli transition --issue "$KEY" --transition "Deployed" || true
+          done
