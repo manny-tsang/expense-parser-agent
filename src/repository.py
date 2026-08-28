@@ -302,8 +302,32 @@ class DatabaseRepository:
         finally:
             conn.close()
 
+    def get_merchants(self) -> pd.DataFrame:
+        """Returns DataFrame of ALL merchants joined with their mapped category name ordered by merchant_name ASC."""
+        self.init_db()
+        conn = self.get_connection()
+        try:
+            query = """
+                SELECT 
+                    m.id AS merchant_id,
+                    m.merchant_name AS merchant_name,
+                    m.category_id AS category_id,
+                    c.category_name AS category_name
+                FROM "merchant" m
+                LEFT JOIN "category" c ON m.category_id = c.id
+                ORDER BY m.merchant_name ASC
+            """
+            df = pd.read_sql_query(query, conn)
+            expected_cols = ['merchant_id', 'merchant_name', 'category_id', 'category_name']
+            for col in expected_cols:
+                if col not in df.columns:
+                    df[col] = None
+            return df[expected_cols]
+        finally:
+            conn.close()
+
     def get_uncategorised_merchants(self) -> pd.DataFrame:
-        """Returns DataFrame of distinct merchants where m.category_id = 1 AND (t.category_id IS NULL OR t.category_id = 1)."""
+        """Returns DataFrame of distinct merchants where m.category_id = 1 AND t.category_id IS NULL."""
         self.init_db()
         conn = self.get_connection()
         try:
@@ -387,8 +411,9 @@ class DatabaseRepository:
         finally:
             conn.close()
 
+    @staticmethod
     def get_or_create_merchant(
-        self, cursor: sqlite3.Cursor, merchant_name: str, cat_id: int = 1
+        cursor: sqlite3.Cursor, merchant_name: str, cat_id: int = 1
     ) -> int:
         """Retrieves existing merchant.id or inserts a new merchant row with cat_id."""
         cursor.execute(
@@ -403,8 +428,9 @@ class DatabaseRepository:
         )
         return cursor.lastrowid
 
+    @staticmethod
     def get_or_create_country(
-        self, cursor: sqlite3.Cursor, country_code: Optional[str]
+        cursor: sqlite3.Cursor, country_code: Optional[str]
     ) -> Optional[int]:
         """Resolves or creates country.id."""
         if not country_code:
@@ -421,8 +447,8 @@ class DatabaseRepository:
         )
         return cursor.lastrowid
 
+    @staticmethod
     def get_or_create_currency(
-        self,
         cursor: sqlite3.Cursor,
         currency_code: Optional[str],
         country_id: Optional[int] = None,
