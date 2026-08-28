@@ -6,7 +6,7 @@ Extract, clean, and anonymize credit card transaction data from a multi-page ban
 ## 2. Environment & Dependencies
 - **Language:** Python 3.x
 - **Primary Libraries:** `pdfplumber`, `pandas`, `re`, `os`, `typing`
-- **Internal Dependencies:** `src.repository` (`DatabaseRepository`)
+- **Internal Dependencies:** `repository` (`DatabaseRepository`)
 
 ## 3. Page Routing & Anchors
 
@@ -79,8 +79,8 @@ The resulting dataframe/CSV must contain the following exact header columns in t
 - **Database Engine**: SQLite 3 (`db/personal-expense-tracker.db`)
 - **Ownership Contract**:
   - `src/pdf_parser.py` MUST NOT contain `CREATE TABLE` statements or define database schemas.
-  - All schema definitions, migrations, baseline data seeding, and database connections are exclusively owned by `DatabaseRepository` inside `src/repository.py`.
-  - `HKStatementParser` imports `DatabaseRepository` from `src.repository` to handle reference lookups, entity creation, duplicate checks, and transaction persistence.
+  - All schema definitions, migrations, baseline data seeding, and database connections are exclusively owned by `DatabaseRepository` inside `repository.py`.
+  - `HKStatementParser` imports `DatabaseRepository` using standard import/fallback (`try: from src.repository import DatabaseRepository except ImportError: from repository import DatabaseRepository`) to handle reference lookups, entity creation, duplicate checks, and transaction persistence.
 
 ### 8.1 Ingestion & Persistence Pipeline
 During PDF statement processing (`HKStatementParser.process`):
@@ -88,10 +88,10 @@ During PDF statement processing (`HKStatementParser.process`):
 2. **Duplicate Statement Check**: Call `repo.init_db(filename)` prior to parsing. If `filename` exists in `statement_log`, it raises `ValueError("Statement '<filename>' has already been processed.")`.
 3. **Transaction Ingestion**: Parse PDF text into raw transaction dictionaries (`post_date`, `trans_date`, `merchant`, `country`, `purchase_currency`, `aud_amount`, `hkd_amount`, `fx_rate`).
 4. **Exclusion Filtering**: Filter out waived card annual fee reversals and transactions containing `IFS PAYMENT` or `PAYMENT - THANK YOU`.
-5. **Batch Persistence**: Pass the cleaned transaction list to `repo.persist_statement_transactions(raw_txns, filename)` to insert records into `merchant`, `country`, `currency`, and `transaction` tables in SQLite.
+5. **Batch Persistence**: Pass the cleaned transaction list to `repo.persist_statement_transactions(raw_txns, filename)` to insert records into `merchant`, `country`, `currency`, and `"transaction"` tables in SQLite. `category_id` on the `"transaction"` record MUST be explicitly saved as `NULL` during ingestion so that `merchant.category_id` acts as the single source of truth for baseline categorisation.
 
 ### 8.2 Auto-Categorisation Keyword Mapping
-During raw merchant processing, if a merchant does not exist in the database, evaluate the `merchant_name` string against default keyword rules before creating the merchant record via `repo.get_or_create_merchant`:
+During raw merchant processing, evaluate the `merchant_name` string against default keyword rules. If a new merchant record is created via `repo.get_or_create_merchant`, set its `category_id` on the `merchant` table accordingly:
 - **Automotive**: `MEEK AUTOMOTIVE`, `SHANNONS`, `SUPERCHEAP AUTO`, `AUTOMOTIVE`, `MECHANIC`
 - **Bank Fees**: `DCC FEE`, `FOREIGN TRANSACTION FEE`, `LATE FEE`, `INTEREST CHARGE`
 - **Dining & Cafes**: `24 YORK`, `BARE WITNESS`, `BAMBOO SUSHI`, `BY V BAR`, `CONCORDIA CLUB`, `CHARGRILL OLYMPICPARK`, `EL JANNAH`, `GYUKATSU KYOTO`, `HASHI SUSHI`, `HIN TEE CHOO`, `HOONSIKDANG`, `KFC`, `MESSIN`, `SIMPLE SIMONS GELATO`, `SQ *ANGUS MARRICKVILLE`, `SQ *BELLA BACIATA`, `SQ *GOOD FELLA`, `SQ *GUMPTION`, `SQ *HEADLANDS`, `SQ *KABUL SOCIAL`, `SQ *LAB RHODES`, `SQ *MAMUKI`, `SQ *THE BERLIN FOOD`, `SQ *YUMYUM`, `THE LUCKY PLACE`, `THE MAJOR HABERFIELD`, `THE LONDON HOTEL`, `UNCLE TETSU`, `GELATO`, `GYG`, `CAFE`, `RESTAURANT`, `COFFEE`, `BAKERY`, `PATISSERIE`, `MCDONALD`
@@ -106,3 +106,5 @@ During raw merchant processing, if a merchant does not exist in the database, ev
 - **Transport**: `OPAL`, `PARKING`, `UBER`, `TAXI`, `TRANSPORT`, `TRANSIT`
 - **Utilities**: `TELSTRA`, `OPTUS`, `ENERGY`, `WATER`, `AANET`, `AGL`, `ORIGIN`
 - **Fallback**: Unmatched new merchants default to `category_id = 1` (`Uncategorised`).
+
+*Note: The auto-categorisation rules assign `category_id` to the `merchant` entity level only. The individual `"transaction"` records inherit this via database joins and remain `category_id = NULL` at ingestion time.*

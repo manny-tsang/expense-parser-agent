@@ -130,6 +130,7 @@ The `DatabaseRepository` class inside `src/repository.py` must expose the follow
 ### 5.2 Query & Read Contracts
 - `get_transactions_dataframe(self) -> pd.DataFrame`: Returns a DataFrame containing all transactions joined with `merchant`, `category` (supporting transaction-level override via `COALESCE(override_cat.category_name, default_cat.category_name)`), and `currency`. Output columns: `id`, `trans_date`, `merchant`, `category_name`, `txn_amount`, `purchase_currency`, `hkd_amount`, `fx_rate`, `category_id`.
 - `get_categories(self) -> pd.DataFrame`: Returns DataFrame of all categories (`id`, `category_name`) ordered by `category_name ASC`.
+- `get_merchants(self) -> pd.DataFrame`: Returns DataFrame of ALL merchants joined with their mapped category name (`merchant_id`, `merchant_name`, `category_id`, `category_name`) ordered by `merchant_name ASC`.
 - `get_uncategorised_merchants(self) -> pd.DataFrame`: Returns DataFrame of distinct merchants where `m.category_id = 1` AND `t.category_id IS NULL`, grouped with `transaction_count`. Output columns: `merchant_id`, `merchant_name`, `transaction_count`.
 
 ### 5.3 Write & Update Contracts
@@ -139,4 +140,8 @@ The `DatabaseRepository` class inside `src/repository.py` must expose the follow
 - `get_or_create_merchant(self, cursor: sqlite3.Cursor, merchant_name: str, cat_id: int) -> int`: Retrieves existing `merchant.id` or inserts a new merchant row with `cat_id`.
 - `get_or_create_country(self, cursor: sqlite3.Cursor, country_code: Optional[str]) -> Optional[int]`: Resolves or creates `country.id`.
 - `get_or_create_currency(self, cursor: sqlite3.Cursor, currency_code: Optional[str], country_id: Optional[int]) -> Optional[int]`: Resolves or creates `currency.id`.
-- `persist_statement_transactions(self, raw_txns: List[Dict[str, Any]], filename: str) -> None`: Writes batch transactions and logs `filename` in `statement_log`.
+- `persist_statement_transactions(self, raw_txns: List[Dict[str, Any]], filename: str) -> None`: Writes batch transactions and logs `filename` in `statement_log`. Explicitly sets `category_id = NULL` on the `"transaction"` record unless an explicit override is provided, ensuring `merchant.category_id` controls the default baseline categorisation.
+
+### 5.4 SQL Identifier & Python String Escaping Rules
+- **Reserved Keyword Escaping**: The table `"transaction"` is an SQLite reserved keyword. All DDL and DML queries MUST enclose the table name in double quotes (`"transaction"`).
+- **Python String Safety**: When embedding SQL queries in Python triple-quoted strings inside `src/repository.py`, use clean double quotes (`"transaction"`) without nesting single quotes (e.g., write `FROM "transaction" t`, NEVER `FROM "'transaction'" t`).

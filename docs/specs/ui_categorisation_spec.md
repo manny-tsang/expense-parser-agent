@@ -77,26 +77,32 @@ The Categorise view layout MUST be organized into **two main rows**:
 ### 4.4 Section 2: Merchant Mapping (`Row 1, Column 2`)
 - **Container Wrapper**: Enclosed inside `st.container(border=True, height="stretch")`.
 - **Section Heading**: `st.subheader("Merchant mapping")`
-- **Description Text**: `st.markdown("Select an uncategorised merchant and a category to create a new mapping, re-categorising ALL transactions made at the selected merchant.")`
+- **Description Text**: `st.markdown("Select a merchant and a category to update its mapping, re-categorising ALL transactions made at the selected merchant.")`
 - **UI Input Components**:
-  - **Merchant Selector**: `st.selectbox("Merchant", options=["Select a merchant"] + uncat_list, key="global_merchant_select")`
+  - **Merchant Selector**: `st.selectbox("Merchant", options=["Select a merchant"] + merchant_list, key="global_merchant_select")`
+    - `merchant_list`: List of distinct merchant names fetched via `repo.get_merchants()`.
     - Default selection MUST be `"Select a merchant"`.
-  - **Category Selector**: `st.selectbox("Category", options=["Select a category"] + category_list, key="global_category_select")`
-    - Default selection MUST be `"Select a category"`.
+  - **Category Selection Layout (2 Sub-Columns)**:
+    - **Sub-column 1 (`Current category`)**:
+      - Read-only text input dynamically keyed to reflect selected merchant's current mapping:
+        `st.text_input("Current category", value=merchant_cat_map.get(selected_merchant, ""), disabled=True, key=f"merchant_current_cat_display_{selected_merchant}")`.
+      - When `selected_merchant` is `"Select a merchant"`, value MUST be `""`.
+    - **Sub-column 2 (`New category`)**: `st.selectbox("New category", options=["Select a category"] + category_list, key="global_category_select")`
+      - Default selection MUST be `"Select a category"`.
   - **Action Button**: `st.button("Save mapping", type="primary", key="save_global_mapping")`
 - **Validation & Modal Confirmation Logic (`@st.dialog(title="Confirm mapping", width="small")`)**:
-  - Signature: `def confirm_merchant_mapping_dialog(selected_merchant: str, selected_category: str, target_id: Any, cat_id: int) -> None:`
+  - Signature: `def confirm_merchant_mapping_dialog(selected_merchant: str, current_cat_name: str, selected_new_cat: str, target_id: Any, new_cat_id: int) -> None:`
   - **Repository Instantiation**: Must instantiate `DatabaseRepository(DB_PATH)` directly inside the dialog function body.
   - When `"Save mapping"` is clicked:
-    - Check that `Merchant` != `"Select a merchant"` AND `Category` != `"Select a category"`.
-    - If either is unselected, render `st.error("Please select both a merchant and a category before saving.")` and halt.
-    - If both are valid, invoke the modal dialog directly:
+    - **Selection Check**: Verify `Merchant` != `"Select a merchant"` AND `New category` != `"Select a category"`. If either is unselected, render `st.error("Please select both a merchant and a new category before saving.")` and halt.
+    - **Same Category Check**: Verify `selected_new_cat` != `current_cat_name`. If equal, render `st.error("'Current category' and 'New category' must not be the same.")` and halt.
+    - If all validations pass, invoke the modal dialog directly:
       - **Modal Title**: `"Confirm mapping"`
       - **Modal Width**: `width="small"`
-      - **Modal Body Text**: `Please confirm that all transactions for '<selected_merchant>' are to be mapped to the '<selected_category>' category.`
+      - **Modal Body Text**: `Please confirm that all transactions for '<selected_merchant>' are to be updated from '<current_cat_name>' to '<selected_new_cat>'?`
       - **Action Buttons Layout (`col1, col2`)**:
         - **"Cancel"** (`use_container_width=True`): Closes modal and returns to page without changes (`st.rerun()`).
-        - **"Save"** (`type="primary"`, `use_container_width=True`): Executes `update_merchant_category(...)` in repository and invokes `st.rerun()`.
+        - **"Save"** (`type="primary"`, `use_container_width=True`): Executes `update_merchant_category(target_id, new_cat_id)` in repository and invokes `st.rerun()`.
       - **State Leak Prevention Rule**: Do NOT store sticky boolean flags in `st.session_state` (e.g., `show_global_dialog = True`) that persist across unrelated widget interactions. Call `@st.dialog` functions directly or reset state flags immediately upon invocation.
 
 ---
@@ -204,10 +210,10 @@ GIVEN I am on the Categorise view in Streamlit
 WHEN the page loads  
 THEN distinct merchants assigned to 'Uncategorised' display in a full-width table paginated at 5 records per page with working controls.
 
-Scenario 2: Update Global Merchant Category  
-GIVEN I select an uncategorised merchant and choose a target category  
-WHEN I click 'Save mapping'  
-THEN `category_id` updates directly on the `merchant` record, categorizing its transactions immediately.
+Scenario 2: Update Merchant Category (Any Merchant)
+GIVEN I select any mapped or uncategorised merchant and choose a new category
+WHEN I click 'Save mapping' and confirm the dialog
+THEN `category_id` updates directly on the `merchant` record in SQLite, re-categorizing all associated transactions immediately across the app.
 
 ---
 
