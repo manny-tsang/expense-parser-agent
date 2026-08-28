@@ -303,7 +303,7 @@ class DatabaseRepository:
             conn.close()
 
     def get_uncategorised_merchants(self) -> pd.DataFrame:
-        """Returns DataFrame of distinct merchants where m.category_id = 1 AND t.category_id IS NULL."""
+        """Returns DataFrame of distinct merchants where m.category_id = 1 AND (t.category_id IS NULL OR t.category_id = 1)."""
         self.init_db()
         conn = self.get_connection()
         try:
@@ -314,7 +314,7 @@ class DatabaseRepository:
                     COUNT(t.id) AS transaction_count
                 FROM "merchant" m
                 JOIN "transaction" t ON t.merchant_id = m.id
-                WHERE m.category_id = 1 AND t.category_id IS NULL
+                WHERE m.category_id = 1 AND (t.category_id IS NULL OR t.category_id = 1)
                 GROUP BY m.id, m.merchant_name
                 ORDER BY transaction_count DESC, m.merchant_name ASC
             """
