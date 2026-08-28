@@ -7,11 +7,11 @@ Build a modular, multi-page ready Streamlit web application (`src/app.py`) manag
 - **Language**: Python 3.x
 - **UI Framework**: Streamlit (`streamlit`), `streamlit-option-menu`
 - **Data & Processing**: `pandas`, `sqlite3`, `re`, `os`, `math`
-- **Core Engine**: `src/pdf_parser.py` (`parse_statement()`)
+- **Data Engine & Repository**: `src/repository.py` (`DatabaseRepository`), `src/pdf_parser.py` (`parse_statement()`)
 - **Database Target**: `db/personal-expense-tracker.db`
 - **Database Ownership Contract**: 
-  - `src/app.py` MUST NOT execute `CREATE TABLE` queries or manage database schemas.
-  - Database table creation, normalized `merchant` table management, and schema migrations are exclusively owned by `src/pdf_parser.py`.
+  - `src/app.py` MUST NOT execute `CREATE TABLE` queries, manage database schemas, or define mock fallback classes.
+  - All database schema management, normalized table creation, connections, and baseline reference data seeding are exclusively owned by `DatabaseRepository` in `src/repository.py`.
 
 ---
 
@@ -86,13 +86,11 @@ Inject strict CSS via `inject_css(page_title)` to maintain top margin offset, so
           - "To:" label (`.period-label`), followed by maximum date (`Month YYYY`, e.g., `July 2026`) formatted with `.period-val` (2rem font size).
 - **Status Feedback**: Visual spinner (`st.spinner`) during processing. If duplicate or invalid, display clear error alert. Upon successful ingestion, display: `"Statement processed successfully!"`.
 
-### 3.5 Main Data Area (Paginated Transaction Table)
-1. **Grid Section Header**: `st.subheader("Transactions uploaded")`
-2. **Section Subtext**: `st.markdown("This is a list of the raw transactions as they've been imported from the uploaded PDF statement.")`
 3. **Database Repository Method Contract**:
-   - `DatabaseRepository.get_transactions_dataframe(self)` queries raw transactions and returns a Pandas DataFrame.
+   - `src/app.py` imports `DatabaseRepository` from `src.repository` (or `repository`).
+   - `DatabaseRepository.get_transactions_dataframe(self)` queries normalized transaction records and returns a Pandas DataFrame.
 4. **Normalized Query Strategy**:
-   - Queries transactions using normalized entity joins:
+   - Executes queries inside `DatabaseRepository` using normalized entity joins:
      ```sql
      SELECT 
          t.id,

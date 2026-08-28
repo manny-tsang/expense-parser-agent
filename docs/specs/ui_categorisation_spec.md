@@ -8,11 +8,11 @@ SO THAT I can accurately categorize recurring merchants globally while retaining
 ## 2. Technical Stack & Dependencies
 - **Language**: Python 3.x
 - **UI Framework**: Streamlit (`src/app.py`), `streamlit-option-menu`
-- **Core Engine & Data Processing**: `src/pdf_parser.py` (`HKStatementParser`), `pandas`, `sqlite3`
+- **Data Engine & Repository**: `src/repository.py` (`DatabaseRepository`), `src/pdf_parser.py` (`parse_statement`), `pandas`
 - **Database Target**: `db/personal-expense-tracker.db`
 - **Database Ownership Contract**:
-  - `src/pdf_parser.py` owns database schema definitions, normalized `merchant` table migrations, and initial seeds.
-  - `src/app.py` executes data reads and updates (`UPDATE` / `INSERT`) through `DatabaseRepository` methods without modifying table structures.
+  - `src/repository.py` exclusively owns database schema definitions, table migrations, connection management, and reference data seeds.
+  - `src/app.py` executes data reads and updates strictly through `DatabaseRepository` methods without defining table structures or mock fallback classes.
 
 ---
 
@@ -149,6 +149,13 @@ The Categorise view layout MUST be organized into **two main rows**:
   - Slice DataFrame: `df.iloc[(page - 1) * page_size : page * page_size]`.
   - Display pagination control bar below the table with **Previous Page**, **Page X of Y**, and **Next Page** buttons.
 - **Table Display**: Render full width (`use_container_width=True`, `hide_index=True`).
+
+---
+
+### 4.7 Streamlit Dialog Architecture & Scope Contract
+- **Module-Level Declaration**: All `@st.dialog` functions MUST be declared as top-level functions outside the `PersonalExpenseTracker` class to satisfy Streamlit fragment execution rules.
+- **Parameter Restrictions**: `@st.dialog` functions MUST NOT accept `self` or `DatabaseRepository` class instances as arguments.
+- **Internal Database Instantiation**: Dialog functions must import `DatabaseRepository` from `src.repository` (or `repository`) and instantiate `DatabaseRepository(DB_PATH)` locally inside the function body to execute updates cleanly across reruns.
 
 ## 5. Jira Automation & Ticket Generation Rules
 
