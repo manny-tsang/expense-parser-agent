@@ -37,12 +37,13 @@ def confirm_add_category_dialog(category_name: str) -> None:
 @st.dialog("Confirm mapping", width="small")
 def confirm_merchant_mapping_dialog(
     selected_merchant: str,
-    selected_category: str,
+    current_cat_name: str,
+    selected_new_cat: str,
     target_id: Any,
-    cat_id: int,
+    new_cat_id: int,
 ) -> None:
     st.write(
-        f"Please confirm that all transactions for '{selected_merchant}' are to be mapped to the '{selected_category}' category."
+        f"Please confirm that all transactions for '{selected_merchant}' are to be updated from '{current_cat_name}' to '{selected_new_cat}'?"
     )
     col1, col2 = st.columns(2)
     with col1:
@@ -53,7 +54,7 @@ def confirm_merchant_mapping_dialog(
             "Save", type="primary", use_container_width=True, key="dialog_save_global"
         ):
             repo = DatabaseRepository(DB_PATH)
-            repo.update_merchant_category(target_id, cat_id)
+            repo.update_merchant_category(target_id, new_cat_id)
             st.rerun()
 
 
@@ -333,6 +334,7 @@ class PersonalExpenseTracker:
             if st.button(
                 "Previous Page",
                 disabled=(current_page <= 1),
+                key="tx_prev_page",
                 use_container_width=True,
             ):
                 st.session_state["current_page"] -= 1
@@ -348,6 +350,7 @@ class PersonalExpenseTracker:
             if st.button(
                 "Next Page",
                 disabled=(current_page >= total_pages),
+                key="tx_next_page",
                 use_container_width=True,
             ):
                 st.session_state["current_page"] += 1
@@ -356,6 +359,7 @@ class PersonalExpenseTracker:
     def render_categorise_page(self) -> None:
         uncat_df = self.repo.get_uncategorised_merchants()
         categories_df = self.repo.get_categories()
+        merchants_df = self.repo.get_merchants()
         tx_df = self.repo.get_transactions_dataframe()
 
         category_list: List[str] = []
@@ -366,15 +370,20 @@ class PersonalExpenseTracker:
                 zip(categories_df["category_name"], categories_df["id"])
             )
 
-        uncat_list: List[str] = []
+        merchant_list: List[str] = []
+        merchant_cat_map: Dict[str, str] = {}
         merchant_id_map: Dict[str, Any] = {}
-        m_col = (
-            "merchant_name" if "merchant_name" in uncat_df.columns else "merchant"
-        )
-        if not uncat_df.empty and m_col in uncat_df.columns:
-            uncat_list = uncat_df[m_col].dropna().tolist()
-            if "merchant_id" in uncat_df.columns:
-                merchant_id_map = dict(zip(uncat_df[m_col], uncat_df["merchant_id"]))
+        if not merchants_df.empty and "merchant_name" in merchants_df.columns:
+            merchant_list = merchants_df["merchant_name"].dropna().tolist()
+            merchant_cat_map = dict(
+                zip(
+                    merchants_df["merchant_name"],
+                    merchants_df["category_name"].fillna(""),
+                )
+            )
+            merchant_id_map = dict(
+                zip(merchants_df["merchant_name"], merchants_df["merchant_id"])
+            )
 
         tx_ids: List[Optional[int]] = [None]
         tx_display_map: Dict[Optional[int], str] = {None: "Select a transaction"}
@@ -440,20 +449,35 @@ class PersonalExpenseTracker:
             with st.container(border=True, height="stretch"):
                 st.subheader("Merchant mapping")
                 st.markdown(
-                    "Select an uncategorised merchant and a category to create a new mapping, re-categorising ALL transactions made at the selected merchant."
+                    "Select a merchant and a category to update its mapping, re-categorising ALL transactions made at the selected merchant."
                 )
 
                 selected_merchant = st.selectbox(
                     "Merchant",
-                    options=["Select a merchant"] + uncat_list,
+                    options=["Select a merchant"] + merchant_list,
                     key="global_merchant_select",
                 )
 
-                selected_category = st.selectbox(
-                    "Category",
-                    options=["Select a category"] + category_list,
-                    key="global_category_select",
+                current_merchant_cat = merchant_cat_map.get(
+                    selected_merchant if selected_merchant != "Select a merchant" else "", ""
                 )
+
+                subcol1, subcol2 = st.columns(2)
+
+                with subcol1:
+                    st.text_input(
+                        "Current category",
+                        value=current_merchant_cat,
+                        disabled=True,
+                        key=f"merchant_current_cat_display_{selected_merchant}",
+                    )
+
+                with subcol2:
+                    selected_category = st.selectbox(
+                        "New category",
+                        options=["Select a category"] + category_list,
+                        key="global_category_select",
+                    )
 
                 save_mapping_btn = st.button(
                     "Save mapping", type="primary", key="save_global_mapping"
@@ -465,18 +489,23 @@ class PersonalExpenseTracker:
                         or selected_category == "Select a category"
                     ):
                         st.error(
-                            "Please select both a merchant and a category before saving."
+                            "Please select both a merchant and a new category before saving."
+                        )
+                    elif selected_category == current_merchant_cat:
+                        st.error(
+                            "'Current category' and 'New category' must not be the same."
                         )
                     else:
                         target_id = merchant_id_map.get(
                             selected_merchant, selected_merchant
                         )
-                        cat_id = cat_name_to_id.get(selected_category, 1)
+                        new_cat_id = cat_name_to_id.get(selected_category, 1)
                         confirm_merchant_mapping_dialog(
                             selected_merchant,
+                            current_merchant_cat,
                             selected_category,
                             target_id,
-                            cat_id,
+                            new_cat_id,
                         )
 
         with col3:
@@ -495,12 +524,14 @@ class PersonalExpenseTracker:
                     key="selected_tx_dropdown",
                 )
 
+                current_tx_cat = tx_cat_map.get(selected_tx_id, "")
+
                 subcol1, subcol2 = st.columns(2)
 
                 with subcol1:
                     st.text_input(
                         "Current category",
-                        value=tx_cat_map.get(selected_tx_id, ""),
+                        value=current_tx_cat,
                         disabled=True,
                         key=f"current_cat_display_{selected_tx_id}",
                     )
@@ -519,7 +550,6 @@ class PersonalExpenseTracker:
                 )
 
                 if update_tx_btn:
-                    current_cat_name = tx_cat_map.get(selected_tx_id, "")
                     if (
                         selected_tx_id is None
                         or selected_new_cat == "Select a category"
@@ -527,14 +557,14 @@ class PersonalExpenseTracker:
                         st.error(
                             "Please select both a transaction and a new category before updating."
                         )
-                    elif selected_new_cat == current_cat_name:
+                    elif selected_new_cat == current_tx_cat:
                         st.error(
                             "'Current category' and 'New category' must not be the same."
                         )
                     else:
                         new_c_id = cat_name_to_id.get(selected_new_cat, 1)
                         confirm_tx_category_dialog(
-                            current_cat_name,
+                            current_tx_cat,
                             selected_new_cat,
                             int(selected_tx_id),
                             new_c_id,
