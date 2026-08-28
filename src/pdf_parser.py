@@ -1,10 +1,11 @@
 import os
 import re
-import sqlite3
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Tuple
 import pandas as pd
 import pdfplumber
+
+from src.repository import DatabaseRepository as BaseDatabaseRepository
 
 DEFAULT_CATEGORIES_KEYWORDS: Dict[str, List[str]] = {
     "Automotive": ["MEEK AUTOMOTIVE", "SHANNONS", "SUPERCHEAP AUTO", "AUTOMOTIVE", "MECHANIC"],
@@ -25,6 +26,7 @@ DEFAULT_CATEGORIES_KEYWORDS: Dict[str, List[str]] = {
         "CHEMIST", "HEALTH", "FITNESS"
     ],
     "Medical": ["SHIM SZE EIN", "DOCTOR", "CLINIC", "DENTAL", "MEDICAL"],
+    "Pet": ["PETBARN", "VET"],
     "Shopping & Retail": ["AMAZON", "AQUILA", "KIEHLS", "REBEL", "UNIQLO", "BUNNINGS", "KMART", "TARGET", "APPLE"],
     "Subscriptions": ["CANVA", "NETFLIX", "PDF.NET", "SPOTIFY", "APPLE.COM/BILL", "YOUTUBE", "PRIME", "DISNEY"],
     "Transport": ["OPAL", "PARKING", "UBER", "TAXI", "TRANSPORT", "TRANSIT"],
@@ -45,16 +47,18 @@ class HKStatementParser:
         "THB", "KRW", "TWD", "MYR", "IDR", "PHP", "VND", "INR", "CHF"
     }
 
-    DB_PATH = os.path.join("db", "personal-expense-tracker.db")
+    DEFAULT_DB_PATH = os.path.join("db", "personal-expense-tracker.db")
 
     def __init__(self, db_path: Optional[str] = None) -> None:
-        if db_path:
-            self.DB_PATH = db_path
+        self.db_path = db_path or self.DEFAULT_DB_PATH
+        self.repo = DatabaseRepository(db_path=self.db_path)
 
     def process(self, pdf_path: str, output_csv_path: Optional[str] = None) -> pd.DataFrame:
         """Main pipeline for parsing PDF statement, persisting to DB, and outputting DataFrame/CSV."""
         filename = os.path.basename(pdf_path)
-        self._init_db_and_check_log(filename)
+
+        # Initialize DB and check statement log duplicate
+        self.repo.init_db(filename)
 
         raw_txns: List[Dict[str, Any]] = []
 
@@ -113,7 +117,7 @@ class HKStatementParser:
                             pending_txn["fx_rate"] = m_fx.group(1)
                         continue
 
-                    # Line 1 Start: Matches two date tokens
+                    # Line 1 Start: Matches two raw date tokens
                     date_pattern = r"^(\d{1,2}\s*[A-Za-z]{3})\s+(\d{1,2}\s*[A-Za-z]{3})\s+(.*)"
                     m_date = re.match(date_pattern, line_str, re.IGNORECASE)
                     if m_date:
@@ -138,8 +142,17 @@ class HKStatementParser:
         # Filter out waived annual fee reversals
         raw_txns = self._filter_fee_reversals(raw_txns)
 
-        # Persistence to SQLite
-        self._persist_to_sqlite(raw_txns, filename)
+        # Auto-categorisation keyword mapping & payload enrichment for repository
+        cat_df = self.repo.get_categories()
+        cat_map = dict(zip(cat_df["category_name"], cat_df["id"])) if not cat_df.empty else {}
+
+        for txn in raw_txns:
+            cat_id = self._resolve_category_id(txn["merchant"], cat_map)
+            txn["category_id"] = cat_id
+            txn["txn_amount"] = txn["aud_amount"] if txn["aud_amount"] is not None else txn["hkd_amount"]
+
+        # Persistence to SQLite via DatabaseRepository
+        self.repo.persist_statement_transactions(raw_txns, filename)
 
         # Build final DataFrame with exact required schema
         df_columns = [
@@ -195,7 +208,7 @@ class HKStatementParser:
 
     @staticmethod
     def _parse_raw_date(date_str: str, stmt_month: int, stmt_year: int) -> str:
-        """Parse raw date string '09JUN' / '09 JUN' into DD-MM-YYYY format."""
+        """Parse raw date string '09JUN' / '09 JUN' into DD-MM-YYYY format with cross-year boundary logic."""
         match = re.search(r"(\d{1,2})\s*([A-Za-z]{3})", date_str)
         if not match:
             return ""
@@ -316,319 +329,19 @@ class HKStatementParser:
             "fx_rate": pending_txn["fx_rate"]
         }
 
-    def _init_db_and_check_log(self, filename: Optional[str] = None) -> None:
-        """Initialize database schema, seed reference data, and check statement duplicate log."""
-        db_dir = os.path.dirname(self.DB_PATH)
-        if db_dir:
-            os.makedirs(db_dir, exist_ok=True)
-
-        with sqlite3.connect(self.DB_PATH) as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS "category" (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    category_name TEXT UNIQUE
-                );
-            """)
-
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS "country" (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    country_name TEXT UNIQUE,
-                    country_code TEXT UNIQUE
-                );
-            """)
-
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS "currency" (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    currency_country_id INTEGER,
-                    currency_code TEXT UNIQUE,
-                    FOREIGN KEY(currency_country_id) REFERENCES "country"(id)
-                );
-            """)
-
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS "merchant" (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    merchant_name TEXT UNIQUE NOT NULL,
-                    category_id INTEGER NOT NULL DEFAULT 1,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY(category_id) REFERENCES "category"(id)
-                );
-            """)
-
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS "transaction" (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    post_date DATE,
-                    trans_date DATE,
-                    merchant_id INTEGER NOT NULL,
-                    country_id INTEGER,
-                    purchase_currency_id INTEGER,
-                    txn_amount REAL,
-                    hkd_amount REAL,
-                    fx_rate NUMERIC,
-                    category_id INTEGER,
-                    FOREIGN KEY(merchant_id) REFERENCES "merchant"(id),
-                    FOREIGN KEY(country_id) REFERENCES "country"(id),
-                    FOREIGN KEY(purchase_currency_id) REFERENCES "currency"(id),
-                    FOREIGN KEY(category_id) REFERENCES "category"(id)
-                );
-            """)
-
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS "statement_log" (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    filename TEXT UNIQUE NOT NULL,
-                    processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-
-            # Baseline reference data seeding
-            self._seed_reference_data(cursor)
-
-            if filename:
-                cursor.execute('SELECT id FROM "statement_log" WHERE filename = ?', (filename,))
-                if cursor.fetchone() is not None:
-                    raise ValueError(f"Statement '{filename}' has already been processed.")
-
-            conn.commit()
-
     @staticmethod
-    def _seed_reference_data(cursor: sqlite3.Cursor) -> None:
-        """Execute idempotent baseline reference data seeding."""
-        cursor.execute('INSERT OR IGNORE INTO "category" ("id", "category_name") VALUES (1, \'Uncategorised\');')
-
-        categories = [
-            'Automotive', 'Bank Fees', 'Dining & Cafes', 'Fuel', 'Groceries',
-            'Haircut', 'Health & Fitness', 'Medical', 'Shopping & Retail',
-            'Subscriptions', 'Transport', 'Utilities'
-        ]
-        for cat in categories:
-            cursor.execute('INSERT OR IGNORE INTO "category" ("category_name") VALUES (?);', (cat,))
-
-        countries = [
-            (1, 'Austria', 'AT'), (2, 'Australia', 'AU'), (3, 'Belgium', 'BE'), (4, 'Bulgaria', 'BG'),
-            (5, 'Canada', 'CA'), (6, 'China', 'CN'), (7, 'Croatia', 'HR'), (8, 'Cyprus', 'CY'),
-            (9, 'Czech Republic', 'CZ'), (10, 'Denmark', 'DK'), (11, 'Estonia', 'EE'), (12, 'Finland', 'FI'),
-            (13, 'France', 'FR'), (14, 'Germany', 'DE'), (15, 'Greece', 'GR'), (16, 'Hong Kong', 'HK'),
-            (17, 'Hungary', 'HU'), (18, 'India', 'IN'), (19, 'Indonesia', 'ID'), (20, 'Ireland', 'IE'),
-            (21, 'Italy', 'IT'), (22, 'Japan', 'JP'), (23, 'Latvia', 'LV'), (24, 'Lithuania', 'LT'),
-            (25, 'Luxembourg', 'LU'), (26, 'Malaysia', 'MY'), (27, 'Malta', 'MT'), (28, 'Netherlands', 'NL'),
-            (29, 'New Zealand', 'NZ'), (30, 'Philippines', 'PH'), (31, 'Poland', 'PL'), (32, 'Portugal', 'PT'),
-            (33, 'Romania', 'RO'), (34, 'Singapore', 'SG'), (35, 'Slovakia', 'SK'), (36, 'Slovenia', 'SI'),
-            (37, 'South Korea', 'KR'), (38, 'Spain', 'ES'), (39, 'Sweden', 'SE'), (40, 'Switzerland', 'CH'),
-            (41, 'Taiwan', 'TW'), (42, 'Thailand', 'TH'), (43, 'United Kingdom', 'GB'), (44, 'United States', 'US'),
-            (45, 'Vietnam', 'VN')
-        ]
-        for c_id, c_name, c_code in countries:
-            cursor.execute(
-                'INSERT OR IGNORE INTO "country" ("id", "country_name", "country_code") VALUES (?, ?, ?);',
-                (c_id, c_name, c_code)
-            )
-
-        currencies = [
-            (1, 'EUR'), (2, 'AUD'), (3, 'EUR'), (4, 'BGN'), (5, 'CAD'), (6, 'CNY'), (7, 'EUR'), (8, 'EUR'),
-            (9, 'CZK'), (10, 'DKK'), (11, 'EUR'), (12, 'EUR'), (13, 'EUR'), (14, 'EUR'), (15, 'EUR'),
-            (16, 'HKD'), (17, 'HUF'), (18, 'INR'), (19, 'IDR'), (20, 'EUR'), (21, 'EUR'), (22, 'JPY'),
-            (23, 'EUR'), (24, 'EUR'), (25, 'EUR'), (26, 'MYR'), (27, 'EUR'), (28, 'EUR'), (29, 'NZD'),
-            (30, 'PHP'), (31, 'PLN'), (32, 'EUR'), (33, 'RON'), (34, 'SGD'), (35, 'EUR'), (36, 'EUR'),
-            (37, 'KRW'), (38, 'EUR'), (39, 'SEK'), (40, 'CHF'), (41, 'TWD'), (42, 'THB'), (43, 'GBP'),
-            (44, 'USD'), (45, 'VND')
-        ]
-        for curr_c_id, curr_code in currencies:
-            cursor.execute(
-                'INSERT OR IGNORE INTO "currency" ("currency_country_id", "currency_code") VALUES (?, ?);',
-                (curr_c_id, curr_code)
-            )
-
-    def _persist_to_sqlite(self, raw_txns: List[Dict[str, Any]], filename: str) -> None:
-        """Persist structured transactions and update log in SQLite."""
-        with sqlite3.connect(self.DB_PATH) as conn:
-            cursor = conn.cursor()
-
-            for txn in raw_txns:
-                if any(ex in txn["merchant"].upper() for ex in ["IFS PAYMENT", "PAYMENT - THANK YOU"]):
-                    continue
-
-                merchant_id = self._get_or_create_merchant(cursor, txn["merchant"])
-                country_id = self._get_or_create_country(cursor, txn["country"])
-                currency_id = self._get_or_create_currency(cursor, txn["purchase_currency"], country_id)
-
-                p_parts = txn["post_date"].split("-")
-                t_parts = txn["trans_date"].split("-")
-                post_date_iso = f"{p_parts[2]}-{p_parts[1]}-{p_parts[0]}"
-                trans_date_iso = f"{t_parts[2]}-{t_parts[1]}-{t_parts[0]}"
-
-                txn_amount = txn["aud_amount"] if txn["aud_amount"] is not None else txn["hkd_amount"]
-                fx_rate_val = float(txn["fx_rate"]) if txn["fx_rate"] is not None else None
-
-                cursor.execute("""
-                    INSERT INTO "transaction" (
-                        post_date, trans_date, merchant_id, country_id, purchase_currency_id,
-                        txn_amount, hkd_amount, fx_rate, category_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
-                """, (
-                    post_date_iso, trans_date_iso, merchant_id, country_id, currency_id,
-                    txn_amount, txn["hkd_amount"], fx_rate_val
-                ))
-
-            cursor.execute('INSERT INTO "statement_log" (filename) VALUES (?)', (filename,))
-            conn.commit()
-
-    @staticmethod
-    def _get_or_create_category(cursor: sqlite3.Cursor, category_name: str) -> int:
-        cursor.execute('SELECT id FROM "category" WHERE category_name = ?', (category_name,))
-        row = cursor.fetchone()
-        if row:
-            return row[0]
-        cursor.execute('INSERT INTO "category" (category_name) VALUES (?)', (category_name,))
-        return cursor.lastrowid
-
-    @staticmethod
-    def _resolve_category_for_merchant(cursor: sqlite3.Cursor, merchant_name: str) -> int:
+    def _resolve_category_id(merchant_name: str, cat_map: Dict[str, int]) -> int:
+        """Evaluate merchant_name against default keyword rules to resolve category_id."""
         upper_name = merchant_name.upper()
         for cat_name, keywords in DEFAULT_CATEGORIES_KEYWORDS.items():
             for kw in keywords:
                 if kw.upper() in upper_name:
-                    return HKStatementParser._get_or_create_category(cursor, cat_name)
-        return HKStatementParser._get_or_create_category(cursor, "Uncategorised")
-
-    @staticmethod
-    def _get_or_create_merchant(cursor: sqlite3.Cursor, merchant_name: str) -> int:
-        cursor.execute('SELECT id FROM "merchant" WHERE merchant_name = ?', (merchant_name,))
-        row = cursor.fetchone()
-        if row:
-            return row[0]
-
-        cat_id = HKStatementParser._resolve_category_for_merchant(cursor, merchant_name)
-        cursor.execute(
-            'INSERT INTO "merchant" (merchant_name, category_id) VALUES (?, ?)',
-            (merchant_name, cat_id)
-        )
-        return cursor.lastrowid
-
-    @staticmethod
-    def _get_or_create_country(cursor: sqlite3.Cursor, country_code: Optional[str]) -> Optional[int]:
-        if not country_code:
-            return None
-        cursor.execute('SELECT id FROM "country" WHERE country_code = ?', (country_code,))
-        row = cursor.fetchone()
-        if row:
-            return row[0]
-        cursor.execute(
-            'INSERT OR IGNORE INTO "country" (country_name, country_code) VALUES (?, ?)',
-            (country_code, country_code)
-        )
-        cursor.execute('SELECT id FROM "country" WHERE country_code = ?', (country_code,))
-        row = cursor.fetchone()
-        return row[0] if row else None
-
-    @staticmethod
-    def _get_or_create_currency(
-        cursor: sqlite3.Cursor, currency_code: Optional[str], country_id: Optional[int]
-    ) -> Optional[int]:
-        if not currency_code:
-            return None
-        cursor.execute('SELECT id FROM "currency" WHERE currency_code = ?', (currency_code,))
-        row = cursor.fetchone()
-        if row:
-            return row[0]
-        cursor.execute(
-            'INSERT OR IGNORE INTO "currency" (currency_country_id, currency_code) VALUES (?, ?)',
-            (country_id, currency_code)
-        )
-        cursor.execute('SELECT id FROM "currency" WHERE currency_code = ?', (currency_code,))
-        row = cursor.fetchone()
-        return row[0] if row else None
+                    return cat_map.get(cat_name, 1)
+        return 1
 
 
-class DatabaseRepository:
-    """Database repository layer for managing transactions, categories, and merchant rules."""
-
-    def __init__(self, db_path: str = HKStatementParser.DB_PATH) -> None:
-        self.db_path = db_path
-
-    def get_connection(self) -> sqlite3.Connection:
-        """Create and return a connection to the SQLite database."""
-        db_dir = os.path.dirname(self.db_path)
-        if db_dir:
-            os.makedirs(db_dir, exist_ok=True)
-        return sqlite3.connect(self.db_path)
-
-    def init_db(self) -> None:
-        """Initialize schema and seed initial database tables."""
-        parser = HKStatementParser(db_path=self.db_path)
-        parser._init_db_and_check_log()
-
-    def get_transactions_dataframe(self) -> pd.DataFrame:
-        """Fetch all transactions with category and currency details."""
-        if not os.path.exists(self.db_path):
-            return pd.DataFrame(
-                columns=[
-                    "id", "trans_date", "merchant", "category_name",
-                    "txn_amount", "purchase_currency", "hkd_amount", "fx_rate", "category_id"
-                ]
-            )
-        try:
-            with self.get_connection() as conn:
-                query = """
-                SELECT 
-                    t.id,
-                    t.trans_date, 
-                    m.merchant_name AS merchant, 
-                    c.category_name, 
-                    t.txn_amount, 
-                    curr.currency_code AS purchase_currency, 
-                    t.hkd_amount, 
-                    t.fx_rate,
-                    COALESCE(t.category_id, m.category_id) AS category_id
-                FROM "transaction" t
-                LEFT JOIN merchant m ON t.merchant_id = m.id
-                LEFT JOIN category c ON COALESCE(t.category_id, m.category_id) = c.id
-                LEFT JOIN currency curr ON t.purchase_currency_id = curr.id
-                ORDER BY t.trans_date DESC, t.id DESC
-                """
-                return pd.read_sql_query(query, conn)
-        except Exception:
-            return pd.DataFrame(
-                columns=[
-                    "id", "trans_date", "merchant", "category_name",
-                    "txn_amount", "purchase_currency", "hkd_amount", "fx_rate", "category_id"
-                ]
-            )
-
-    def get_categories(self) -> pd.DataFrame:
-        """Fetch all existing categories ordered by category_name."""
-        if not os.path.exists(self.db_path):
-            return pd.DataFrame(columns=["id", "category_name"])
-        try:
-            with self.get_connection() as conn:
-                query = 'SELECT id, category_name FROM "category" ORDER BY category_name ASC'
-                return pd.read_sql_query(query, conn)
-        except Exception:
-            return pd.DataFrame(columns=["id", "category_name"])
-
-    def get_uncategorised_merchants(self) -> pd.DataFrame:
-        """Fetch distinct merchants assigned to 'Uncategorised' with transaction counts."""
-        if not os.path.exists(self.db_path):
-            return pd.DataFrame(columns=["merchant", "transaction_count"])
-        try:
-            with self.get_connection() as conn:
-                query = """
-                SELECT m.merchant_name AS merchant, COUNT(t.id) AS transaction_count
-                FROM "transaction" t
-                JOIN merchant m ON t.merchant_id = m.id
-                JOIN category c ON COALESCE(t.category_id, m.category_id) = c.id
-                WHERE c.category_name = 'Uncategorised'
-                GROUP BY m.merchant_name
-                ORDER BY transaction_count DESC, m.merchant_name ASC
-                """
-                return pd.read_sql_query(query, conn)
-        except Exception:
-            return pd.DataFrame(columns=["merchant", "transaction_count"])
+class DatabaseRepository(BaseDatabaseRepository):
+    """Database repository layer extending base repository functionality."""
 
     def add_merchant_mapping_rule(self, pattern: str, category_id: int) -> bool:
         """Add a global merchant rule pattern and propagate to all matching existing merchants."""
@@ -645,20 +358,6 @@ class DatabaseRepository:
                     WHERE UPPER(merchant_name) LIKE '%' || UPPER(?) || '%'
                     """,
                     (category_id, clean_pattern)
-                )
-                conn.commit()
-                return True
-        except Exception:
-            return False
-
-    def update_transaction_category(self, transaction_id: int, category_id: int) -> bool:
-        """Update category_id for an individual transaction without creating a global rule."""
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    'UPDATE "transaction" SET category_id = ? WHERE id = ?',
-                    (category_id, transaction_id)
                 )
                 conn.commit()
                 return True
