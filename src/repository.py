@@ -10,11 +10,15 @@ class DatabaseRepository:
     def __init__(self, db_path: str = "db/personal-expense-tracker.db") -> None:
         """Initializes target DB path and ensures parent directories exist."""
         self.db_path = db_path
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        dirname = os.path.dirname(self.db_path)
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
 
     def get_connection(self) -> sqlite3.Connection:
         """Creates parent directory if missing and returns an active sqlite3.Connection."""
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        dirname = os.path.dirname(self.db_path)
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
         return sqlite3.connect(self.db_path)
 
     def init_db(self, filename: Optional[str] = None) -> None:
@@ -25,13 +29,6 @@ class DatabaseRepository:
         conn = self.get_connection()
         try:
             cursor = conn.cursor()
-
-            if filename:
-                cursor.execute(
-                    "SELECT id FROM statement_log WHERE filename = ?", (filename,)
-                )
-                if cursor.fetchone():
-                    raise ValueError(f"Statement '{filename}' has already been processed.")
 
             # Create Tables
             cursor.execute(
@@ -107,9 +104,16 @@ class DatabaseRepository:
                 """
             )
 
+            if filename:
+                cursor.execute(
+                    'SELECT id FROM "statement_log" WHERE filename = ?', (filename,)
+                )
+                if cursor.fetchone():
+                    raise ValueError(f"Statement '{filename}' has already been processed.")
+
             # Baseline Seed Data: Category
             cursor.execute(
-                "INSERT OR IGNORE INTO category (id, category_name) VALUES (1, 'Uncategorised');"
+                'INSERT OR IGNORE INTO "category" (id, category_name) VALUES (1, \'Uncategorised\');'
             )
             canonical_categories = [
                 'Automotive',
@@ -127,7 +131,7 @@ class DatabaseRepository:
                 'Utilities',
             ]
             cursor.executemany(
-                "INSERT OR IGNORE INTO category (category_name) VALUES (?)",
+                'INSERT OR IGNORE INTO "category" (category_name) VALUES (?)',
                 [(c,) for c in canonical_categories],
             )
 
@@ -180,7 +184,7 @@ class DatabaseRepository:
                 (45, 'Vietnam', 'VN'),
             ]
             cursor.executemany(
-                "INSERT OR IGNORE INTO country (id, country_name, country_code) VALUES (?, ?, ?)",
+                'INSERT OR IGNORE INTO "country" (id, country_name, country_code) VALUES (?, ?, ?)',
                 countries,
             )
 
@@ -233,7 +237,7 @@ class DatabaseRepository:
                 (45, 'VND'),
             ]
             cursor.executemany(
-                "INSERT OR IGNORE INTO currency (currency_country_id, currency_code) VALUES (?, ?)",
+                'INSERT OR IGNORE INTO "currency" (currency_country_id, currency_code) VALUES (?, ?)',
                 currencies,
             )
 
@@ -257,11 +261,11 @@ class DatabaseRepository:
                     t.hkd_amount AS hkd_amount,
                     t.fx_rate AS fx_rate,
                     COALESCE(t.category_id, m.category_id) AS category_id
-                FROM transaction t
-                LEFT JOIN merchant m ON t.merchant_id = m.id
-                LEFT JOIN category default_cat ON m.category_id = default_cat.id
-                LEFT JOIN category override_cat ON t.category_id = override_cat.id
-                LEFT JOIN currency c ON t.purchase_currency_id = c.id
+                FROM "transaction" t
+                LEFT JOIN "merchant" m ON t.merchant_id = m.id
+                LEFT JOIN "category" default_cat ON m.category_id = default_cat.id
+                LEFT JOIN "category" override_cat ON t.category_id = override_cat.id
+                LEFT JOIN "currency" c ON t.purchase_currency_id = c.id
                 ORDER BY t.trans_date DESC, t.id DESC
             """
             df = pd.read_sql_query(query, conn)
@@ -288,7 +292,7 @@ class DatabaseRepository:
         self.init_db()
         conn = self.get_connection()
         try:
-            query = "SELECT id, category_name FROM category ORDER BY category_name ASC"
+            query = 'SELECT id, category_name FROM "category" ORDER BY category_name ASC'
             df = pd.read_sql_query(query, conn)
             expected_cols = ['id', 'category_name']
             for col in expected_cols:
@@ -308,8 +312,8 @@ class DatabaseRepository:
                     m.id AS merchant_id,
                     m.merchant_name AS merchant_name,
                     COUNT(t.id) AS transaction_count
-                FROM merchant m
-                JOIN transaction t ON t.merchant_id = m.id
+                FROM "merchant" m
+                JOIN "transaction" t ON t.merchant_id = m.id
                 WHERE m.category_id = 1 AND t.category_id IS NULL
                 GROUP BY m.id, m.merchant_name
                 ORDER BY transaction_count DESC, m.merchant_name ASC
@@ -330,7 +334,7 @@ class DatabaseRepository:
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO category (category_name) VALUES (?)", (category_name,)
+                'INSERT INTO "category" (category_name) VALUES (?)', (category_name,)
             )
             conn.commit()
             return True
@@ -349,12 +353,12 @@ class DatabaseRepository:
             cursor = conn.cursor()
             if isinstance(merchant_id_or_name, int):
                 cursor.execute(
-                    "UPDATE merchant SET category_id = ? WHERE id = ?",
+                    'UPDATE "merchant" SET category_id = ? WHERE id = ?',
                     (category_id, merchant_id_or_name),
                 )
             else:
                 cursor.execute(
-                    "UPDATE merchant SET category_id = ? WHERE merchant_name = ?",
+                    'UPDATE "merchant" SET category_id = ? WHERE merchant_name = ?',
                     (category_id, str(merchant_id_or_name)),
                 )
             conn.commit()
@@ -373,7 +377,7 @@ class DatabaseRepository:
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "UPDATE transaction SET category_id = ? WHERE id = ?",
+                'UPDATE "transaction" SET category_id = ? WHERE id = ?',
                 (category_id, transaction_id),
             )
             conn.commit()
@@ -388,13 +392,13 @@ class DatabaseRepository:
     ) -> int:
         """Retrieves existing merchant.id or inserts a new merchant row with cat_id."""
         cursor.execute(
-            "SELECT id FROM merchant WHERE merchant_name = ?", (merchant_name,)
+            'SELECT id FROM "merchant" WHERE merchant_name = ?', (merchant_name,)
         )
         row = cursor.fetchone()
         if row:
             return row[0]
         cursor.execute(
-            "INSERT INTO merchant (merchant_name, category_id) VALUES (?, ?)",
+            'INSERT INTO "merchant" (merchant_name, category_id) VALUES (?, ?)',
             (merchant_name, cat_id),
         )
         return cursor.lastrowid
@@ -406,13 +410,13 @@ class DatabaseRepository:
         if not country_code:
             return None
         cursor.execute(
-            "SELECT id FROM country WHERE country_code = ?", (country_code,)
+            'SELECT id FROM "country" WHERE country_code = ?', (country_code,)
         )
         row = cursor.fetchone()
         if row:
             return row[0]
         cursor.execute(
-            "INSERT INTO country (country_name, country_code) VALUES (?, ?)",
+            'INSERT INTO "country" (country_name, country_code) VALUES (?, ?)',
             (country_code, country_code),
         )
         return cursor.lastrowid
@@ -427,13 +431,13 @@ class DatabaseRepository:
         if not currency_code:
             return None
         cursor.execute(
-            "SELECT id FROM currency WHERE currency_code = ?", (currency_code,)
+            'SELECT id FROM "currency" WHERE currency_code = ?', (currency_code,)
         )
         row = cursor.fetchone()
         if row:
             return row[0]
         cursor.execute(
-            "INSERT INTO currency (currency_country_id, currency_code) VALUES (?, ?)",
+            'INSERT INTO "currency" (currency_country_id, currency_code) VALUES (?, ?)',
             (country_id, currency_code),
         )
         return cursor.lastrowid
@@ -442,14 +446,14 @@ class DatabaseRepository:
         self, raw_txns: List[Dict[str, Any]], filename: str
     ) -> None:
         """Writes batch transactions and logs filename in statement_log."""
-        self.init_db()
+        self.init_db(filename=filename)
         conn = self.get_connection()
         try:
             cursor = conn.cursor()
 
             # Verify statement log again before writing
             cursor.execute(
-                "SELECT id FROM statement_log WHERE filename = ?", (filename,)
+                'SELECT id FROM "statement_log" WHERE filename = ?', (filename,)
             )
             if cursor.fetchone():
                 raise ValueError(f"Statement '{filename}' has already been processed.")
@@ -486,7 +490,7 @@ class DatabaseRepository:
 
                 cursor.execute(
                     """
-                    INSERT INTO transaction (
+                    INSERT INTO "transaction" (
                         post_date, trans_date, merchant_id, country_id,
                         purchase_currency_id, txn_amount, hkd_amount, fx_rate, category_id
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -505,7 +509,7 @@ class DatabaseRepository:
                 )
 
             cursor.execute(
-                "INSERT INTO statement_log (filename) VALUES (?)", (filename,)
+                'INSERT INTO "statement_log" (filename) VALUES (?)', (filename,)
             )
             conn.commit()
         finally:
