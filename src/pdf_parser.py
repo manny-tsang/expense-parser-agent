@@ -1,11 +1,14 @@
 import os
 import re
 from datetime import datetime
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 import pdfplumber
 
-from src.repository import DatabaseRepository as BaseDatabaseRepository
+try:
+    from src.repository import DatabaseRepository as BaseDatabaseRepository
+except ImportError:
+    from repository import DatabaseRepository as BaseDatabaseRepository
 
 DEFAULT_CATEGORIES_KEYWORDS: Dict[str, List[str]] = {
     "Automotive": ["MEEK AUTOMOTIVE", "SHANNONS", "SUPERCHEAP AUTO", "AUTOMOTIVE", "MECHANIC"],
@@ -348,21 +351,23 @@ class DatabaseRepository(BaseDatabaseRepository):
         if not pattern or not pattern.strip():
             return False
         clean_pattern = pattern.strip()
+        conn = self.get_connection()
         try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    UPDATE "merchant"
-                    SET category_id = ?
-                    WHERE UPPER(merchant_name) LIKE '%' || UPPER(?) || '%'
-                    """,
-                    (category_id, clean_pattern)
-                )
-                conn.commit()
-                return True
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE "merchant"
+                SET category_id = ?
+                WHERE UPPER(merchant_name) LIKE '%' || UPPER(?) || '%'
+                """,
+                (category_id, clean_pattern)
+            )
+            conn.commit()
+            return True
         except Exception:
             return False
+        finally:
+            conn.close()
 
 
 def parse_statement(
