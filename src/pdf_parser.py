@@ -37,6 +37,106 @@ DEFAULT_CATEGORIES_KEYWORDS: Dict[str, List[str]] = {
 }
 
 
+class DatabaseRepository(BaseDatabaseRepository):
+    """Database repository layer extending base repository functionality."""
+
+    def add_merchant_mapping_rule(self, pattern: str, category_id: int) -> bool:
+        """Add a global merchant rule pattern and propagate to all matching existing merchants."""
+        if not pattern or not pattern.strip():
+            return False
+        clean_pattern = pattern.strip()
+        conn = self.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE "merchant"
+                SET category_id = ?
+                WHERE UPPER(merchant_name) LIKE '%' || UPPER(?) || '%'
+                """,
+                (category_id, clean_pattern)
+            )
+            conn.commit()
+            return True
+        except Exception:
+            return False
+        finally:
+            conn.close()
+
+    def persist_statement_transactions(
+        self, raw_txns: List[Dict[str, Any]], filename: str
+    ) -> None:
+        """Writes batch transactions with transaction.category_id = NULL during ingestion and logs filename."""
+        self.init_db(filename=filename)
+        conn = self.get_connection()
+        try:
+            cursor = conn.cursor()
+
+            # Verify statement log again before writing
+            cursor.execute(
+                'SELECT id FROM "statement_log" WHERE filename = ?', (filename,)
+            )
+            if cursor.fetchone():
+                raise ValueError(f"Statement '{filename}' has already been processed.")
+
+            for txn in raw_txns:
+                m_name = (
+                    txn.get("merchant_name")
+                    or txn.get("merchant")
+                    or "UNKNOWN"
+                )
+                cat_id = txn.get("category_id") or 1
+                m_id = self.get_or_create_merchant(cursor, m_name, cat_id)
+
+                c_code = txn.get("country_code") or txn.get("country")
+                c_id = self.get_or_create_country(cursor, c_code)
+
+                curr_code = (
+                    txn.get("currency_code")
+                    or txn.get("currency")
+                    or txn.get("purchase_currency")
+                )
+                curr_id = self.get_or_create_currency(cursor, curr_code, c_id)
+
+                p_date = txn.get("post_date")
+                t_date = txn.get("trans_date") or txn.get("date")
+                txn_amt = (
+                    txn.get("txn_amount")
+                    if "txn_amount" in txn
+                    else txn.get("amount")
+                )
+                hkd_amt = txn.get("hkd_amount")
+                fx_rate = txn.get("fx_rate")
+                t_cat_id = None  # Explicitly NULL so merchant.category_id is single source of truth
+
+                cursor.execute(
+                    """
+                    INSERT INTO "transaction" (
+                        post_date, trans_date, merchant_id, country_id,
+                        purchase_currency_id, txn_amount, hkd_amount, fx_rate, category_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        p_date,
+                        t_date,
+                        m_id,
+                        c_id,
+                        curr_id,
+                        txn_amt,
+                        hkd_amt,
+                        fx_rate,
+                        t_cat_id,
+                    ),
+                )
+
+            cursor.execute(
+                'INSERT INTO "statement_log" (filename) VALUES (?)', (filename,)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+
 class HKStatementParser:
     """Parser for Hong Kong Credit Card PDF Statements."""
 
@@ -120,7 +220,7 @@ class HKStatementParser:
                             pending_txn["fx_rate"] = m_fx.group(1)
                         continue
 
-                    # Line 1 Start: Matches two raw date tokens
+                    # Line 1 Start: Matches two raw date tokens with optional spaces
                     date_pattern = r"^(\d{1,2}\s*[A-Za-z]{3})\s+(\d{1,2}\s*[A-Za-z]{3})\s+(.*)"
                     m_date = re.match(date_pattern, line_str, re.IGNORECASE)
                     if m_date:
@@ -341,33 +441,6 @@ class HKStatementParser:
                 if kw.upper() in upper_name:
                     return cat_map.get(cat_name, 1)
         return 1
-
-
-class DatabaseRepository(BaseDatabaseRepository):
-    """Database repository layer extending base repository functionality."""
-
-    def add_merchant_mapping_rule(self, pattern: str, category_id: int) -> bool:
-        """Add a global merchant rule pattern and propagate to all matching existing merchants."""
-        if not pattern or not pattern.strip():
-            return False
-        clean_pattern = pattern.strip()
-        conn = self.get_connection()
-        try:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                UPDATE "merchant"
-                SET category_id = ?
-                WHERE UPPER(merchant_name) LIKE '%' || UPPER(?) || '%'
-                """,
-                (category_id, clean_pattern)
-            )
-            conn.commit()
-            return True
-        except Exception:
-            return False
-        finally:
-            conn.close()
 
 
 def parse_statement(
