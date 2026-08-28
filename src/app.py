@@ -1,7 +1,6 @@
 import math
 import os
 import re
-import sqlite3
 import tempfile
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -10,201 +9,11 @@ import streamlit as st
 from streamlit_option_menu import option_menu
 
 try:
-    from src.pdf_parser import DatabaseRepository, parse_statement
+    from src.pdf_parser import parse_statement
+    from src.repository import DatabaseRepository
 except ImportError:
-    try:
-        from pdf_parser import DatabaseRepository, parse_statement
-    except ImportError:
-
-        def parse_statement(
-            file_path: str, db_path: str = "db/personal-expense-tracker.db"
-        ) -> bool:
-            return False
-
-        class DatabaseRepository:  # type: ignore
-            def __init__(self, db_path: str = "db/personal-expense-tracker.db") -> None:
-                self.db_path = db_path
-
-            def get_connection(self) -> sqlite3.Connection:
-                os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-                return sqlite3.connect(self.db_path)
-
-            def get_transactions_dataframe(self) -> pd.DataFrame:
-                if not os.path.exists(self.db_path):
-                    return pd.DataFrame(
-                        columns=[
-                            "id",
-                            "trans_date",
-                            "merchant",
-                            "category_name",
-                            "txn_amount",
-                            "purchase_currency",
-                            "hkd_amount",
-                            "fx_rate",
-                            "category_id",
-                        ]
-                    )
-                try:
-                    with self.get_connection() as conn:
-                        query = """
-                        SELECT 
-                            t.id,
-                            t.trans_date, 
-                            m.merchant_name AS merchant, 
-                            COALESCE(override_cat.category_name, default_cat.category_name) AS category_name, 
-                            t.txn_amount, 
-                            curr.currency_code AS purchase_currency, 
-                            t.hkd_amount, 
-                            t.fx_rate,
-                            t.category_id
-                        FROM "transaction" t
-                        JOIN merchant m ON t.merchant_id = m.id
-                        LEFT JOIN category default_cat ON m.category_id = default_cat.id
-                        LEFT JOIN category override_cat ON t.category_id = override_cat.id
-                        LEFT JOIN currency curr ON t.purchase_currency_id = curr.id
-                        ORDER BY t.trans_date DESC, t.id DESC
-                        """
-                        return pd.read_sql_query(query, conn)
-                except Exception:
-                    try:
-                        with self.get_connection() as conn:
-                            query_fallback = """
-                            SELECT 
-                                t.id,
-                                t.trans_date, 
-                                t.merchant, 
-                                c.category_name, 
-                                t.txn_amount, 
-                                curr.currency_code AS purchase_currency, 
-                                t.hkd_amount, 
-                                t.fx_rate,
-                                t.category_id
-                            FROM "transaction" t
-                            LEFT JOIN category c ON t.category_id = c.id
-                            LEFT JOIN currency curr ON t.purchase_currency_id = curr.id
-                            ORDER BY t.trans_date DESC, t.id DESC
-                            """
-                            return pd.read_sql_query(query_fallback, conn)
-                    except Exception:
-                        return pd.DataFrame(
-                            columns=[
-                                "id",
-                                "trans_date",
-                                "merchant",
-                                "category_name",
-                                "txn_amount",
-                                "purchase_currency",
-                                "hkd_amount",
-                                "fx_rate",
-                                "category_id",
-                            ]
-                        )
-
-            def get_categories(self) -> pd.DataFrame:
-                if not os.path.exists(self.db_path):
-                    return pd.DataFrame(columns=["id", "category_name"])
-                try:
-                    with self.get_connection() as conn:
-                        query = (
-                            'SELECT id, category_name FROM "category" ORDER BY category_name ASC'
-                        )
-                        return pd.read_sql_query(query, conn)
-                except Exception:
-                    return pd.DataFrame(columns=["id", "category_name"])
-
-            def add_category(self, category_name: str) -> bool:
-                if not os.path.exists(self.db_path):
-                    return False
-                try:
-                    with self.get_connection() as conn:
-                        cursor = conn.cursor()
-                        cursor.execute(
-                            'INSERT INTO "category" ("category_name") VALUES (?)',
-                            (category_name,),
-                        )
-                        conn.commit()
-                        return True
-                except Exception:
-                    return False
-
-            def get_uncategorised_merchants(self) -> pd.DataFrame:
-                if not os.path.exists(self.db_path):
-                    return pd.DataFrame(
-                        columns=["merchant_id", "merchant_name", "transaction_count"]
-                    )
-                try:
-                    with self.get_connection() as conn:
-                        query = """
-                        SELECT 
-                            m.id AS merchant_id,
-                            m.merchant_name, 
-                            COUNT(t.id) AS transaction_count
-                        FROM "transaction" t
-                        JOIN merchant m ON t.merchant_id = m.id
-                        WHERE m.category_id = 1 AND t.category_id IS NULL
-                        GROUP BY m.id, m.merchant_name
-                        ORDER BY transaction_count DESC, m.merchant_name ASC
-                        """
-                        return pd.read_sql_query(query, conn)
-                except Exception:
-                    try:
-                        with self.get_connection() as conn:
-                            query_fallback = """
-                            SELECT 
-                                t.merchant AS merchant_name, 
-                                COUNT(t.id) AS transaction_count
-                            FROM "transaction" t
-                            LEFT JOIN category c ON t.category_id = c.id
-                            WHERE c.category_name = 'Uncategorised' OR t.category_id = 1 OR t.category_id IS NULL
-                            GROUP BY t.merchant
-                            ORDER BY transaction_count DESC, t.merchant ASC
-                            """
-                            return pd.read_sql_query(query_fallback, conn)
-                    except Exception:
-                        return pd.DataFrame(
-                            columns=["merchant_name", "transaction_count"]
-                        )
-
-            def update_merchant_category(
-                self, merchant_id_or_name: Union[int, str], category_id: int
-            ) -> bool:
-                if not os.path.exists(self.db_path):
-                    return False
-                try:
-                    with self.get_connection() as conn:
-                        cursor = conn.cursor()
-                        if isinstance(merchant_id_or_name, int):
-                            cursor.execute(
-                                "UPDATE merchant SET category_id = ? WHERE id = ?",
-                                (category_id, merchant_id_or_name),
-                            )
-                        else:
-                            cursor.execute(
-                                "UPDATE merchant SET category_id = ? WHERE merchant_name = ?",
-                                (category_id, str(merchant_id_or_name)),
-                            )
-                        conn.commit()
-                        return True
-                except Exception:
-                    return False
-
-            def update_transaction_category(
-                self, transaction_id: int, category_id: int
-            ) -> bool:
-                if not os.path.exists(self.db_path):
-                    return False
-                try:
-                    with self.get_connection() as conn:
-                        cursor = conn.cursor()
-                        cursor.execute(
-                            'UPDATE "transaction" SET category_id = ? WHERE id = ?',
-                            (category_id, transaction_id),
-                        )
-                        conn.commit()
-                        return True
-                except Exception:
-                    return False
-
+    from pdf_parser import parse_statement
+    from repository import DatabaseRepository
 
 DB_PATH = "db/personal-expense-tracker.db"
 
@@ -379,7 +188,7 @@ class PersonalExpenseTracker:
                 menu_title=None,
                 options=["Dashboard", "Upload", "Categorise", "Charts"],
                 icons=["house", "cloud-upload", "tag", "bar-chart"],
-                default_index=0,
+                default_index=1,
                 styles={
                     "container": {
                         "padding": "0!important",
@@ -596,10 +405,8 @@ class PersonalExpenseTracker:
                         str(cat_val) if pd.notna(cat_val) and cat_val else ""
                     )
 
-        # Row 1: 3 Equal Columns
         col1, col2, col3 = st.columns(3)
 
-        # Section 1: Add new category
         with col1:
             with st.container(border=True, height="stretch"):
                 st.subheader("Add new category")
@@ -629,7 +436,6 @@ class PersonalExpenseTracker:
                     else:
                         confirm_add_category_dialog(trimmed_cat)
 
-        # Section 2: Merchant mapping
         with col2:
             with st.container(border=True, height="stretch"):
                 st.subheader("Merchant mapping")
@@ -673,7 +479,6 @@ class PersonalExpenseTracker:
                             cat_id,
                         )
 
-        # Section 3: Update transaction category
         with col3:
             with st.container(border=True, height="stretch"):
                 st.subheader("Update transaction category")
@@ -735,7 +540,6 @@ class PersonalExpenseTracker:
                             new_c_id,
                         )
 
-        # Row 2: Full Width - Uncategorised merchants
         st.subheader("Uncategorised merchants")
         st.markdown(
             "List of merchants currently assigned to 'Uncategorised' requiring mapping."
