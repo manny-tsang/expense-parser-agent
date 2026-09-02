@@ -1,6 +1,6 @@
 import os
 import sqlite3
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 import pandas as pd
 
 
@@ -493,20 +493,28 @@ class DatabaseRepository:
         return cursor.lastrowid
 
     def persist_statement_transactions(
-        self, raw_txns: List[Dict[str, Any]], filename: str
+        self,
+        raw_txns: List[Dict[str, Any]],
+        filename: str,
+        conn: Optional[sqlite3.Connection] = None,
     ) -> None:
         """Writes batch transactions and logs filename in statement_log."""
-        self.init_db(filename=filename)
-        conn = self.get_connection()
-        try:
-            cursor = conn.cursor()
+        own_conn = conn is None
+        if own_conn:
+            self.init_db(filename=filename)
+            active_conn = self.get_connection()
+        else:
+            active_conn = conn
 
-            # Verify statement log again before writing
-            cursor.execute(
-                'SELECT id FROM "statement_log" WHERE filename = ?', (filename,)
-            )
-            if cursor.fetchone():
-                raise ValueError(f"Statement '{filename}' has already been processed.")
+        try:
+            cursor = active_conn.cursor()
+
+            if not own_conn:
+                cursor.execute(
+                    'SELECT id FROM "statement_log" WHERE filename = ?', (filename,)
+                )
+                if cursor.fetchone():
+                    raise ValueError(f"Statement '{filename}' has already been processed.")
 
             for txn in raw_txns:
                 m_name = (
@@ -565,6 +573,8 @@ class DatabaseRepository:
             cursor.execute(
                 'INSERT INTO "statement_log" (filename) VALUES (?)', (filename,)
             )
-            conn.commit()
+            if own_conn:
+                active_conn.commit()
         finally:
-            conn.close()
+            if own_conn and active_conn:
+                active_conn.close()
