@@ -325,7 +325,11 @@ To prevent Streamlit session state locks and fragment rendering errors, all moda
     - *Column 2*: "Merchant mapping" (2 sub-columns: read-only `Current category` + selectbox `New category`).
     - *Column 3*: "Update transaction category" (2 sub-columns for single-transaction overrides).
   - **Row 2 (Full Width)**: Full-width table displaying uncategorised merchants (`m.category_id = 1`) paginated at 5 records per page.
-- **Charts Page Layout**: *(Specification Pending)*
+- **Charts Page Layout**:
+  - **Row 1 (`st.columns([3, 2])`)**:
+    - *Column 1*: Plotly Donut Chart (`hole=0.55`) displaying total AUD spend formatted as `$XX,XXX.XX` centered in the cutout, with sub-metric caption *"Transactions in currencies other than AUD"* for native foreign spend.
+    - *Column 2*: Filter Control Card featuring Date Range Presets (defaulting to `"This Month"`), Custom Date Picker, Category Multi-Select, and Configurable Outlier Threshold input (defaulting to `$1,000`).
+  - **Row 2 (Full Width)**: Category Budget Statistics DataFrame rendering `Category`, `Total Spend (AUD)`, `Monthly Average (AUD)`, `% of Total`, `Txn Count`, and `Max Single Txn (AUD)` with outlier indicators.
 
 ---
 
