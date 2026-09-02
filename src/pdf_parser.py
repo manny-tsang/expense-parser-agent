@@ -63,11 +63,53 @@ class DatabaseRepository(BaseDatabaseRepository):
         finally:
             conn.close()
 
+    def resolve_merchant_category_id(self, merchant_name: str, cat_map: Dict[str, int]) -> int:
+        """Resolves category_id for a merchant using 4-level database-first hierarchy:
+        Level 1: Exact Database Merchant Lookup
+        Level 2: Dynamic Database Pattern Search
+        Level 3: Static Keyword Dictionary Fallback
+        Level 4: Default Fallback (1 - Uncategorised)
+        """
+        if not merchant_name:
+            return 1
+
+        conn = self.get_connection()
+        try:
+            cursor = conn.cursor()
+            # Level 1: Exact Database Merchant Lookup
+            cursor.execute(
+                'SELECT category_id FROM "merchant" WHERE merchant_name = ?',
+                (merchant_name,)
+            )
+            row = cursor.fetchone()
+            if row and row[0] is not None:
+                return row[0]
+        finally:
+            conn.close()
+
+        # Level 2: Dynamic Database Pattern Search
+        pattern_cat_id = self.match_merchant_category_pattern(merchant_name)
+        if pattern_cat_id is not None:
+            return pattern_cat_id
+
+        # Level 3: Static Keyword Dictionary Fallback
+        upper_name = merchant_name.upper()
+        for cat_name, keywords in DEFAULT_CATEGORIES_KEYWORDS.items():
+            for kw in keywords:
+                if kw.upper() in upper_name:
+                    return cat_map.get(cat_name, 1)
+
+        # Level 4: Default Fallback
+        return 1
+
     def persist_statement_transactions(
         self, raw_txns: List[Dict[str, Any]], filename: str
     ) -> None:
         """Writes batch transactions with transaction.category_id = NULL during ingestion and logs filename."""
         self.init_db(filename=filename)
+        cat_df = self.get_categories()
+        cat_map = dict(zip(cat_df["category_name"], cat_df["id"])) if not cat_df.empty else {}
+
         conn = self.get_connection()
         try:
             cursor = conn.cursor()
@@ -85,7 +127,7 @@ class DatabaseRepository(BaseDatabaseRepository):
                     or txn.get("merchant")
                     or "UNKNOWN"
                 )
-                cat_id = txn.get("category_id") or 1
+                cat_id = self.resolve_merchant_category_id(m_name, cat_map)
                 m_id = self.get_or_create_merchant(cursor, m_name, cat_id)
 
                 c_code = txn.get("country_code") or txn.get("country")
@@ -105,6 +147,9 @@ class DatabaseRepository(BaseDatabaseRepository):
                     if "txn_amount" in txn
                     else txn.get("amount")
                 )
+                if txn_amt is None:
+                    txn_amt = txn.get("aud_amount") if txn.get("aud_amount") is not None else txn.get("hkd_amount")
+
                 hkd_amt = txn.get("hkd_amount")
                 fx_rate = txn.get("fx_rate")
                 t_cat_id = None  # Explicitly NULL so merchant.category_id is single source of truth
@@ -244,15 +289,6 @@ class HKStatementParser:
 
         # Filter out waived annual fee reversals
         raw_txns = self._filter_fee_reversals(raw_txns)
-
-        # Auto-categorisation keyword mapping & payload enrichment for repository
-        cat_df = self.repo.get_categories()
-        cat_map = dict(zip(cat_df["category_name"], cat_df["id"])) if not cat_df.empty else {}
-
-        for txn in raw_txns:
-            cat_id = self._resolve_category_id(txn["merchant"], cat_map)
-            txn["category_id"] = cat_id
-            txn["txn_amount"] = txn["aud_amount"] if txn["aud_amount"] is not None else txn["hkd_amount"]
 
         # Persistence to SQLite via DatabaseRepository
         self.repo.persist_statement_transactions(raw_txns, filename)
@@ -411,7 +447,7 @@ class HKStatementParser:
         merchant = " ".join(tokens).strip()
 
         # Edge cases
-        if country and not purchase_currency and not pending_txn["fx_rate"]:
+        if country and not purchase_currency:
             purchase_currency = "HKD"
 
         if not country and not purchase_currency:
@@ -431,16 +467,6 @@ class HKStatementParser:
             "hkd_amount": hkd_amount,
             "fx_rate": pending_txn["fx_rate"]
         }
-
-    @staticmethod
-    def _resolve_category_id(merchant_name: str, cat_map: Dict[str, int]) -> int:
-        """Evaluate merchant_name against default keyword rules to resolve category_id."""
-        upper_name = merchant_name.upper()
-        for cat_name, keywords in DEFAULT_CATEGORIES_KEYWORDS.items():
-            for kw in keywords:
-                if kw.upper() in upper_name:
-                    return cat_map.get(cat_name, 1)
-        return 1
 
 
 def parse_statement(
