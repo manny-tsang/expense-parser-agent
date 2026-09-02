@@ -1,5 +1,6 @@
 import os
 import re
+import sqlite3
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
@@ -63,7 +64,9 @@ class DatabaseRepository(BaseDatabaseRepository):
         finally:
             conn.close()
 
-    def resolve_merchant_category_id(self, merchant_name: str, cat_map: Dict[str, int]) -> int:
+    def resolve_merchant_category_id(
+        self, merchant_name: str, cat_map: Dict[str, int], cursor: Optional[sqlite3.Cursor] = None
+    ) -> int:
         """Resolves category_id for a merchant using 4-level database-first hierarchy:
         Level 1: Exact Database Merchant Lookup
         Level 2: Dynamic Database Pattern Search
@@ -73,9 +76,13 @@ class DatabaseRepository(BaseDatabaseRepository):
         if not merchant_name:
             return 1
 
-        conn = self.get_connection()
-        try:
+        close_conn = False
+        if cursor is None:
+            conn = self.get_connection()
             cursor = conn.cursor()
+            close_conn = True
+
+        try:
             # Level 1: Exact Database Merchant Lookup
             cursor.execute(
                 'SELECT category_id FROM "merchant" WHERE merchant_name = ?',
@@ -84,31 +91,43 @@ class DatabaseRepository(BaseDatabaseRepository):
             row = cursor.fetchone()
             if row and row[0] is not None:
                 return row[0]
+
+            # Level 2: Dynamic Database Pattern Search
+            cursor.execute(
+                """
+                SELECT category_id
+                FROM "merchant"
+                WHERE category_id != 1
+                  AND UPPER(?) LIKE '%' || UPPER(merchant_name) || '%'
+                ORDER BY LENGTH(merchant_name) DESC
+                LIMIT 1
+                """,
+                (merchant_name,)
+            )
+            row2 = cursor.fetchone()
+            if row2 and row2[0] is not None:
+                return row2[0]
+
+            # Level 3: Static Keyword Dictionary Fallback
+            upper_name = merchant_name.upper()
+            for cat_name, keywords in DEFAULT_CATEGORIES_KEYWORDS.items():
+                for kw in keywords:
+                    if kw.upper() in upper_name:
+                        return cat_map.get(cat_name, 1)
+
+            # Level 4: Default Fallback
+            return 1
         finally:
-            conn.close()
-
-        # Level 2: Dynamic Database Pattern Search
-        pattern_cat_id = self.match_merchant_category_pattern(merchant_name)
-        if pattern_cat_id is not None:
-            return pattern_cat_id
-
-        # Level 3: Static Keyword Dictionary Fallback
-        upper_name = merchant_name.upper()
-        for cat_name, keywords in DEFAULT_CATEGORIES_KEYWORDS.items():
-            for kw in keywords:
-                if kw.upper() in upper_name:
-                    return cat_map.get(cat_name, 1)
-
-        # Level 4: Default Fallback
-        return 1
+            if close_conn and cursor:
+                cursor.connection.close()
 
     def persist_statement_transactions(
         self, raw_txns: List[Dict[str, Any]], filename: str
     ) -> None:
-        """Writes batch transactions with transaction.category_id = NULL during ingestion and logs filename."""
+        """Writes batch transactions with transaction.category_id = NULL during ingestion and logs filename.
+        All lookups and insertions reuse a single open sqlite3.Connection.
+        """
         self.init_db(filename=filename)
-        cat_df = self.get_categories()
-        cat_map = dict(zip(cat_df["category_name"], cat_df["id"])) if not cat_df.empty else {}
 
         conn = self.get_connection()
         try:
@@ -121,13 +140,16 @@ class DatabaseRepository(BaseDatabaseRepository):
             if cursor.fetchone():
                 raise ValueError(f"Statement '{filename}' has already been processed.")
 
+            cursor.execute('SELECT category_name, id FROM "category"')
+            cat_map = {row[0]: row[1] for row in cursor.fetchall()}
+
             for txn in raw_txns:
                 m_name = (
                     txn.get("merchant_name")
                     or txn.get("merchant")
                     or "UNKNOWN"
                 )
-                cat_id = self.resolve_merchant_category_id(m_name, cat_map)
+                cat_id = self.resolve_merchant_category_id(m_name, cat_map, cursor=cursor)
                 m_id = self.get_or_create_merchant(cursor, m_name, cat_id)
 
                 c_code = txn.get("country_code") or txn.get("country")
@@ -282,7 +304,7 @@ class HKStatementParser:
                             "fx_rate": None
                         }
 
-            if pending_txn and not global_stop:
+            if pending_txn:
                 parsed = self._parse_transaction_rest(pending_txn, stmt_month, stmt_year)
                 if parsed:
                     raw_txns.append(parsed)
