@@ -132,6 +132,8 @@ The `DatabaseRepository` class inside `src/repository.py` must expose the follow
 - `get_categories(self) -> pd.DataFrame`: Returns DataFrame of all categories (`id`, `category_name`) ordered by `category_name ASC`.
 - `get_merchants(self) -> pd.DataFrame`: Returns DataFrame of ALL merchants joined with their mapped category name (`merchant_id`, `merchant_name`, `category_id`, `category_name`) ordered by `merchant_name ASC`.
 - `get_uncategorised_merchants(self) -> pd.DataFrame`: Returns DataFrame of distinct merchants where `m.category_id = 1` AND `t.category_id IS NULL`, grouped with `transaction_count`. Output columns: `merchant_id`, `merchant_name`, `transaction_count`.
+- `match_merchant_category_pattern(self, merchant_name: str) -> Optional[int]`: 
+  Evaluates `merchant_name` against mapped merchants in SQLite using SQL substring matching (`WHERE category_id != 1 AND UPPER(?) LIKE '%' || UPPER(merchant_name) || '%'`). Returns the matching `category_id` if found, otherwise `None`.
 
 ### 5.3 Write & Update Contracts
 - `add_category(self, category_name: str) -> bool`: Inserts a new category into `"category"`. Returns `True` on success, `False` on failure.
