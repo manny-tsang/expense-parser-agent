@@ -51,7 +51,17 @@ via REST API v3                             (src/repository.py, src/pdf_parser.p
    - Local VS Code workspace receives synced updates to validate functionality via `streamlit run src/app.py`.
    - Smart commits (`PET-X #devcomplete`) trigger GitHub Actions (`.github/workflows/jira-transitions.yml`) using `atlassian/gajira-transition@v3` to advance story statuses automatically across the Jira workflow.
 
-## 1.3 Future Evolution of the AI Delivery Engine
+### 1.3 Environment & Core Tech Stack
+- **Language**: Python 3.x
+- **UI & Presentation**: Streamlit (`src/app.py`), `streamlit-option-menu`
+- **Data Visualization**: `plotly` (`plotly.express`, `plotly.graph_objects`), `st.plotly_chart`
+- **PDF Extraction & Processing**: `pdfplumber`, `pandas`, `re`
+- **Database Engine**: SQLite 3 (`db/personal-expense-tracker.db`)
+- **API & System Integrations**: Google GenAI SDK (`google-genai`), `requests`, `python-dotenv`
+
+---
+
+### 1.4 Future Evolution of the AI Delivery Engine
 *Note: The current SDD delivery engine (jira_agent_runner.py and agent_runner.py) represents Phase 1 of the delivery model. As the project matures, this architecture document will be updated to reflect Phase 2 capabilities, including automated spec refinement, automated test-driven output validation, and programmatic acceptance testing execution prior to git commits.*
 
 ---
