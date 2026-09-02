@@ -351,6 +351,30 @@ class DatabaseRepository:
         finally:
             conn.close()
 
+    def match_merchant_category_pattern(self, merchant_name: str) -> Optional[int]:
+        """Evaluates an unmapped merchant string against existing mapped merchants in SQLite using SQL substring matching."""
+        if not merchant_name:
+            return None
+        self.init_db()
+        conn = self.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT category_id
+                FROM "merchant"
+                WHERE category_id != 1
+                  AND UPPER(?) LIKE '%' || UPPER(merchant_name) || '%'
+                ORDER BY LENGTH(merchant_name) DESC
+                LIMIT 1
+                """,
+                (merchant_name,),
+            )
+            row = cursor.fetchone()
+            return row[0] if row else None
+        finally:
+            conn.close()
+
     def add_category(self, category_name: str) -> bool:
         """Inserts a new category into 'category'. Returns True on success, False on failure."""
         self.init_db()
@@ -490,7 +514,7 @@ class DatabaseRepository:
                     or txn.get("merchant")
                     or "UNKNOWN"
                 )
-                cat_id = txn.get("category_id") or 1
+                cat_id = txn.get("merchant_category_id") or txn.get("category_id") or 1
                 m_id = self.get_or_create_merchant(cursor, m_name, cat_id)
 
                 c_code = txn.get("country_code") or txn.get("country")
@@ -512,7 +536,11 @@ class DatabaseRepository:
                 )
                 hkd_amt = txn.get("hkd_amount")
                 fx_rate = txn.get("fx_rate")
-                t_cat_id = txn.get("category_id")
+
+                # Explicitly set category_id = NULL on "transaction" record unless explicit override provided
+                t_cat_id = txn.get("override_category_id") or txn.get("transaction_category_id")
+                if t_cat_id is None and txn.get("is_override"):
+                    t_cat_id = txn.get("category_id")
 
                 cursor.execute(
                     """
