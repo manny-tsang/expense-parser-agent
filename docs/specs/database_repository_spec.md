@@ -141,7 +141,9 @@ The `DatabaseRepository` class inside `src/repository.py` must expose the follow
 - `get_or_create_merchant(self, cursor: sqlite3.Cursor, merchant_name: str, cat_id: int) -> int`: Retrieves existing `merchant.id` or inserts a new merchant row with `cat_id`.
 - `get_or_create_country(self, cursor: sqlite3.Cursor, country_code: Optional[str]) -> Optional[int]`: Resolves or creates `country.id`.
 - `get_or_create_currency(self, cursor: sqlite3.Cursor, currency_code: Optional[str], country_id: Optional[int]) -> Optional[int]`: Resolves or creates `currency.id`.
-- `persist_statement_transactions(self, raw_txns: List[Dict[str, Any]], filename: str) -> None`: Writes batch transactions and logs `filename` in `statement_log`. Explicitly sets `category_id = NULL` on the `"transaction"` record unless an explicit override is provided, ensuring `merchant.category_id` controls the default baseline categorisation.
+- `persist_statement_transactions(self, raw_txns: List[Dict[str, Any]], filename: str, conn: Optional[sqlite3.Connection] = None) -> None`: Writes batch transactions and logs `filename` in `statement_log`.
+  - **Connection Lifecycle Contract**: If `conn` is provided, all queries MUST execute using that active connection handle without opening new handles or closing it. If `conn` is `None`, it manages its own local connection scope.
+  - Explicitly sets `category_id = NULL` on the `"transaction"` record unless an explicit override is provided, ensuring `merchant.category_id` controls the default baseline categorisation.
 
 ### 5.4 SQL Identifier & Python String Escaping Rules
 - **Reserved Keyword Escaping**: The table `"transaction"` is an SQLite reserved keyword. All DDL and DML queries MUST enclose the table name in double quotes (`"transaction"`).

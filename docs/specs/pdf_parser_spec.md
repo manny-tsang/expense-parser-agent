@@ -82,14 +82,16 @@ The resulting dataframe/CSV must contain the following exact header columns in t
   - All schema definitions, migrations, baseline data seeding, and database connections are exclusively owned by `DatabaseRepository` inside `repository.py`.
   - `HKStatementParser` imports `DatabaseRepository` using standard import/fallback (`try: from src.repository import DatabaseRepository except ImportError: from repository import DatabaseRepository`) to handle reference lookups, entity creation, duplicate checks, and transaction persistence.
 
-### 8.1 Ingestion & Persistence Pipeline
+### 8.1 Ingestion & Persistence Pipeline & Connection Lifecycle
 During PDF statement processing (`HKStatementParser.process`):
 1. **Repository Instantiation**: Initialize `DatabaseRepository(db_path)`.
 2. **Duplicate Statement Check**: Call `repo.init_db(filename)` prior to parsing. If `filename` exists in `statement_log`, it raises `ValueError("Statement '<filename>' has already been processed.")`.
 3. **Transaction Ingestion**: Parse PDF text into raw transaction dictionaries (`post_date`, `trans_date`, `merchant`, `country`, `purchase_currency`, `aud_amount`, `hkd_amount`, `fx_rate`).
 4. **Exclusion Filtering**: Filter out waived card annual fee reversals and transactions containing `IFS PAYMENT` or `PAYMENT - THANK YOU`.
-5. **Batch Persistence**: Pass the cleaned transaction list to `repo.persist_statement_transactions(raw_txns, filename)` to insert records into `merchant`, `country`, `currency`, and `"transaction"` tables in SQLite. `category_id` on the `"transaction"` record MUST be explicitly saved as `NULL` during ingestion so that `merchant.category_id` acts as the single source of truth for baseline categorisation.
-
+5. **Single Connection Batch Persistence**: Pass the cleaned transaction list to `repo.persist_statement_transactions(raw_txns, filename)` to insert records into `merchant`, `country`, `currency`, and `"transaction"` tables.
+   - **Connection Lifecycle Rule**: All category map lookups, merchant resolution checks, and batch transaction `INSERT` statements executed inside `persist_statement_transactions` MUST reuse a **single open `sqlite3.Connection` handle** (opened via `self.get_connection()`) to prevent SQLite database lock errors (`sqlite3.OperationalError: database is locked`).
+   - `category_id` on the `"transaction"` record MUST be explicitly saved as `NULL` during ingestion so that `merchant.category_id` acts as the single source of truth for baseline categorisation.
+   
 ### 8.2 Dynamic Database-First Merchant Categorisation Hierarchy
 
 During raw merchant processing and ingestion, resolving `category_id` for a merchant entity MUST evaluate a strict 4-level database-first priority hierarchy prior to inserting new records[cite: 10, 14]:
