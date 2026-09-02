@@ -212,10 +212,6 @@ class PersonalExpenseTracker:
         return str(selected)
 
     def render_upload_page(self) -> None:
-        st.markdown(
-            "Upload a PDF statement to process into anonymised transactions to be stored and used for budget planning."
-        )
-
         df = self.repo.get_transactions_dataframe()
         total_txns = len(df)
         period_from, period_to = self.get_date_range(df)
@@ -224,10 +220,11 @@ class PersonalExpenseTracker:
 
         with col1:
             with st.container(border=True, height="stretch"):
-                st.markdown(
-                    '<div class="metric-card-container">Upload a PDF statement</div>',
-                    unsafe_allow_html=True,
-                )
+                # st.markdown(
+                #     '<div class="metric-card-container">Upload a PDF statement</div>',
+                #     unsafe_allow_html=True,
+                # )
+                st.subheader("Upload a PDF statement")
                 uploaded_file = st.file_uploader(
                     "Upload PDF", type=["pdf"], label_visibility="collapsed"
                 )
@@ -237,9 +234,9 @@ class PersonalExpenseTracker:
 
         with col2:
             with st.container(border=True, height="stretch"):
+                st.subheader("Total transactions uploaded")
                 st.markdown(
                     f"""<div class="metric-card-container">
-                        <div>Total transactions uploaded</div>
                         <div class="metric-large">{total_txns}</div>
                     </div>""",
                     unsafe_allow_html=True,
@@ -247,9 +244,9 @@ class PersonalExpenseTracker:
 
         with col3:
             with st.container(border=True, height="stretch"):
+                st.subheader("Statement period uploaded")
                 st.markdown(
                     f"""<div class="metric-card-container">
-                        <div>Statement period uploaded</div>
                         <div class="period-label">From:</div>
                         <div class="period-val">{period_from}</div>
                         <div class="period-label">To:</div>
@@ -665,7 +662,7 @@ class PersonalExpenseTracker:
 
         with col2:
             with st.container(border=True, height="stretch"):
-                st.subheader("Filter Controls")
+                st.subheader("Filters")
                 date_preset = st.radio(
                     "Date Range",
                     options=[
@@ -743,7 +740,7 @@ class PersonalExpenseTracker:
         # Render Donut Chart (Col 1)
         with col1:
             with st.container(border=True, height="stretch"):
-                st.subheader("Category Spending Breakdown (AUD)")
+                st.subheader("Expense Category Breakdown")
                 if filtered_df.empty:
                     st.info("No transactions found for the selected filter criteria.")
                 else:
@@ -801,10 +798,10 @@ class PersonalExpenseTracker:
                 if has_non_aud:
                     st.caption("ℹ️ Transactions in currencies other than AUD")
 
-        # Row 2: Category Budget Statistics Table
+        # Row 2: Expense Category Statistics Table
         st.write("")
         with st.container(border=True):
-            st.subheader("Category Budget Statistics")
+            st.subheader("Expense Category Statistics")
             st.markdown(
                 "Monthly averages calculated across the selected date range for direct import into budget spreadsheets."
             )
@@ -870,7 +867,7 @@ class PersonalExpenseTracker:
             initial_sidebar_state="expanded",
         )
         selected = self.render_sidebar()
-        page_title = "Charts & Insights" if selected == "Charts" else selected
+        page_title = "Charts" if selected == "Charts" else selected
         self.inject_css(page_title)
 
         if selected == "Upload":
