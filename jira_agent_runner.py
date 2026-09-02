@@ -60,18 +60,24 @@ def parse_spec_with_gemini(spec_content: str) -> dict:
     {spec_content}
     \"\"\"
 
+    CRITICAL RULES FOR EPICS vs STORIES:
+    1. Look closely at the "Epic Mapping" or "Target Epic" section in the spec.
+    2. If the spec references existing Jira Epic Keys (e.g., "PET-4", "PET-7", "PET-3"), DO NOT include them in "new_epics". They ALREADY exist in Jira!
+    3. Include entries in "new_epics" ONLY if the spec explicitly defines a BRAND NEW Epic that does not have an assigned Jira key (e.g., "PET-X").
+    4. For every story, "target_epic_key_or_name" MUST be the exact Jira Epic key (e.g., "PET-7" or "PET-4") if specified in the text.
+
     Strict JSON Schema Output Format:
     {{
       "new_epics": [
         {{
-          "summary": "Epic Title",
-          "description": "Short description of the Epic"
+          "summary": "Brand New Epic Title",
+          "description": "Short description of the new Epic"
         }}
       ],
       "stories": [
         {{
           "title": "[ UI | PY | DB ] Story Title",
-          "target_epic_key_or_name": "PET-3",
+          "target_epic_key_or_name": "PET-7",
           "description": "Full BDD description including AS A / I WANT / SO THAT and Acceptance Criteria GIVEN/WHEN/THEN"
         }}
       ]
@@ -184,7 +190,7 @@ def main():
         "--spec",
         type=str,
         required=True,
-        help="Path to the specification markdown file (e.g., docs/specs/ui_categorisation_spec.md)"
+        help="Path to the specification markdown file (e.g., docs/specs/ui_charts_spec.md)"
     )
     parser.add_argument(
         "--dry-run",
@@ -222,21 +228,30 @@ def main():
 
     created_epics = {}
 
-    # 1. Create New Epics
+    # 1. Create New Epics (with safety check against existing PET keys)
     for epic in structured_data.get("new_epics", []):
-        print(f"Creating Epic: '{epic['summary']}'...")
+        summary = epic["summary"]
+        
+        # Guardrail: Never re-create an Epic if its title/summary matches an existing key (e.g. PET-4 or PET-7)
+        if re.search(r'PET-[0-9]+', summary, re.IGNORECASE):
+            print(f"Skipping Epic creation for '{summary}' — matches existing Epic Key pattern.")
+            continue
+
+        print(f"Creating New Epic: '{summary}'...")
         res = create_jira_issue(
-            summary=epic["summary"],
-            description=epic.get("description", epic["summary"]),
+            summary=summary,
+            description=epic.get("description", summary),
             issue_type="Epic"
         )
         epic_key = res["key"]
-        created_epics[epic["summary"]] = epic_key
+        created_epics[summary] = epic_key
         print(f"  └─ Created Epic {epic_key}")
 
     # 2. Create Stories under respective Parents & Transition Status
     for story in structured_data.get("stories", []):
         target_epic = story["target_epic_key_or_name"]
+        
+        # If target_epic is already an existing key (e.g., PET-7), use it directly. Otherwise use newly created key.
         parent_key = created_epics.get(target_epic, target_epic)
 
         print(f"Creating Story: '{story['title']}' under Parent '{parent_key}'...")
