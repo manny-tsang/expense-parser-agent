@@ -4,7 +4,10 @@ import re
 import tempfile
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import numpy as np
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 from streamlit_option_menu import option_menu
 
@@ -633,6 +636,233 @@ class PersonalExpenseTracker:
                 st.session_state["uncat_current_page"] += 1
                 st.rerun()
 
+    def render_charts_page(self) -> None:
+        raw_df = self.repo.get_transactions_dataframe()
+        categories_df = self.repo.get_categories()
+
+        category_list: List[str] = []
+        if not categories_df.empty and "category_name" in categories_df.columns:
+            category_list = categories_df["category_name"].dropna().tolist()
+
+        # Prepare base dataframe with datetime conversion
+        df = raw_df.copy() if not raw_df.empty else pd.DataFrame()
+        if not df.empty and "trans_date" in df.columns:
+            df["trans_date_dt"] = pd.to_datetime(df["trans_date"], errors="coerce")
+        else:
+            df["trans_date_dt"] = pd.Series(dtype="datetime64[ns]")
+
+        if "txn_amount" in df.columns:
+            df["txn_amount"] = pd.to_numeric(df["txn_amount"], errors="coerce").fillna(0.0)
+        else:
+            df["txn_amount"] = 0.0
+
+        if "category_name" not in df.columns:
+            df["category_name"] = "Uncategorised"
+        df["category_name"] = df["category_name"].fillna("Uncategorised")
+
+        # Row 1 Layout: Donut Chart (Col 1) and Filter Control Card (Col 2)
+        col1, col2 = st.columns([3, 2])
+
+        with col2:
+            with st.container(border=True, height="stretch"):
+                st.subheader("Filter Controls")
+                date_preset = st.radio(
+                    "Date Range",
+                    options=[
+                        "This Month",
+                        "Last 3 Months",
+                        "Last 6 Months",
+                        "Year to Date",
+                        "All Time",
+                    ],
+                    index=0,
+                    horizontal=True,
+                    key="charts_date_preset",
+                )
+
+                custom_date = st.date_input(
+                    "Custom Date Range",
+                    value=(),
+                    key="charts_custom_date",
+                )
+
+                selected_categories = st.multiselect(
+                    "Filter Categories",
+                    options=category_list if category_list else df["category_name"].unique().tolist(),
+                    default=category_list if category_list else df["category_name"].unique().tolist(),
+                    key="charts_category_filter",
+                )
+
+                outlier_threshold = st.number_input(
+                    "Highlight Outliers Above ($)",
+                    value=1000,
+                    step=100,
+                    key="charts_outlier_threshold",
+                )
+
+        # Apply filtering
+        today = pd.Timestamp.today().normalize()
+        start_date: Optional[pd.Timestamp] = None
+        end_date: Optional[pd.Timestamp] = None
+
+        if custom_date and isinstance(custom_date, (list, tuple)) and len(custom_date) == 2:
+            start_date = pd.Timestamp(custom_date[0])
+            end_date = pd.Timestamp(custom_date[1])
+        else:
+            if date_preset == "This Month":
+                start_date = today.replace(day=1)
+                end_date = today
+            elif date_preset == "Last 3 Months":
+                start_date = today - pd.DateOffset(months=3)
+                end_date = today
+            elif date_preset == "Last 6 Months":
+                start_date = today - pd.DateOffset(months=6)
+                end_date = today
+            elif date_preset == "Year to Date":
+                start_date = pd.Timestamp(year=today.year, month=1, day=1)
+                end_date = today
+            elif date_preset == "All Time":
+                start_date = None
+                end_date = None
+
+        filtered_df = df.copy()
+        if not filtered_df.empty:
+            if start_date is not None:
+                filtered_df = filtered_df[filtered_df["trans_date_dt"] >= start_date]
+            if end_date is not None:
+                filtered_df = filtered_df[filtered_df["trans_date_dt"] <= end_date]
+            if selected_categories:
+                filtered_df = filtered_df[filtered_df["category_name"].isin(selected_categories)]
+
+        # Determine non-AUD transactions
+        has_non_aud = False
+        if not filtered_df.empty and "purchase_currency" in filtered_df.columns:
+            non_aud_mask = filtered_df["purchase_currency"].astype(str).str.upper().ne("AUD")
+            has_non_aud = bool(non_aud_mask.any())
+
+        # Render Donut Chart (Col 1)
+        with col1:
+            with st.container(border=True, height="stretch"):
+                st.subheader("Category Spending Breakdown (AUD)")
+                if filtered_df.empty:
+                    st.info("No transactions found for the selected filter criteria.")
+                else:
+                    cat_summary = (
+                        filtered_df.groupby("category_name")["txn_amount"]
+                        .sum()
+                        .reset_index()
+                    )
+                    cat_summary.columns = ["Category", "Total Spend (AUD)"]
+                    total_spend = cat_summary["Total Spend (AUD)"].sum()
+
+                    fig = go.Figure(
+                        data=[
+                            go.Pie(
+                                labels=cat_summary["Category"],
+                                values=cat_summary["Total Spend (AUD)"],
+                                hole=0.55,
+                                textinfo="percent+label",
+                                hoverinfo="label+value+percent",
+                                hovertemplate="<b>%{label}</b><br>Total Spend: $%{value:,.2f}<br>Share: %{percent}<extra></extra>",
+                                marker=dict(
+                                    colors=px.colors.qualitative.Plotly
+                                ),
+                            )
+                        ]
+                    )
+
+                    fig.update_layout(
+                        annotations=[
+                            dict(
+                                text=f"<b>Total Spend</b><br>${total_spend:,.2f}",
+                                x=0.5,
+                                y=0.5,
+                                font=dict(size=18, color="#FFFFFF"),
+                                showarrow=False,
+                            )
+                        ],
+                        showlegend=True,
+                        legend=dict(
+                            orientation="h",
+                            yanchor="bottom",
+                            y=-0.2,
+                            xanchor="center",
+                            x=0.5,
+                            font=dict(color="#FFFFFF"),
+                        ),
+                        margin=dict(l=20, r=20, t=30, b=20),
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        font=dict(color="#FFFFFF"),
+                    )
+
+                    st.plotly_chart(fig, use_container_width=True)
+
+                if has_non_aud:
+                    st.caption("ℹ️ Transactions in currencies other than AUD")
+
+        # Row 2: Category Budget Statistics Table
+        st.write("")
+        with st.container(border=True):
+            st.subheader("Category Budget Statistics")
+            st.markdown(
+                "Monthly averages calculated across the selected date range for direct import into budget spreadsheets."
+            )
+
+            if filtered_df.empty:
+                st.info("No transaction data available for statistics.")
+            else:
+                # Calculate months in range N
+                valid_dates = filtered_df["trans_date_dt"].dropna()
+                if not valid_dates.empty:
+                    min_date = valid_dates.min()
+                    max_date = valid_dates.max()
+                    days_diff = max(0, (max_date - min_date).days)
+                    n_months = max(1.0, days_diff / 30.44)
+                else:
+                    n_months = 1.0
+
+                total_all_spend = filtered_df["txn_amount"].sum()
+
+                grouped = (
+                    filtered_df.groupby("category_name")
+                    .agg(
+                        total_spend=("txn_amount", "sum"),
+                        txn_count=("id" if "id" in filtered_df.columns else "txn_amount", "count"),
+                        max_single_txn=("txn_amount", "max"),
+                    )
+                    .reset_index()
+                )
+
+                grouped = grouped.sort_values(by="total_spend", ascending=False)
+
+                table_rows = []
+                for _, row in grouped.iterrows():
+                    cat_val = row["category_name"]
+                    t_spend = float(row["total_spend"])
+                    m_avg = t_spend / n_months
+                    pct_share = (t_spend / total_all_spend * 100) if total_all_spend > 0 else 0.0
+                    t_count = int(row["txn_count"])
+                    m_single = float(row["max_single_txn"])
+
+                    # Apply outlier visual indicator (asterisk)
+                    is_outlier = m_single > outlier_threshold
+                    max_single_str = f"${m_single:,.2f}*" if is_outlier else f"${m_single:,.2f}"
+
+                    table_rows.append(
+                        {
+                            "Category": cat_val,
+                            "Total Spend (AUD)": f"${t_spend:,.2f}",
+                            "Monthly Average (AUD)": f"${m_avg:,.2f}",
+                            "% of Total": f"{pct_share:.1f}%",
+                            "Txn Count": t_count,
+                            "Max Single Txn (AUD)": max_single_str,
+                        }
+                    )
+
+                stats_df = pd.DataFrame(table_rows)
+                st.dataframe(stats_df, use_container_width=True, hide_index=True)
+
     def run(self) -> None:
         st.set_page_config(
             page_title="Personal Expense Tracker",
@@ -640,7 +870,8 @@ class PersonalExpenseTracker:
             initial_sidebar_state="expanded",
         )
         selected = self.render_sidebar()
-        self.inject_css(selected)
+        page_title = "Charts & Insights" if selected == "Charts" else selected
+        self.inject_css(page_title)
 
         if selected == "Upload":
             self.render_upload_page()
@@ -651,9 +882,7 @@ class PersonalExpenseTracker:
                 "Dashboard View - Select 'Upload' to ingest statements or 'Categorise' to manage rules."
             )
         elif selected == "Charts":
-            st.info(
-                "Charts View - Select 'Upload' to ingest statements or 'Categorise' to manage rules."
-            )
+            self.render_charts_page()
 
 
 if __name__ == "__main__":
