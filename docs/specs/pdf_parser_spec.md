@@ -91,36 +91,36 @@ During PDF statement processing (`HKStatementParser.process`):
 5. **Single Connection Batch Persistence**: Pass the cleaned transaction list to `repo.persist_statement_transactions(raw_txns, filename)` to insert records into `merchant`, `country`, `currency`, and `"transaction"` tables.
    - **Connection Lifecycle Rule**: All category map lookups, merchant resolution checks, and batch transaction `INSERT` statements executed inside `persist_statement_transactions` MUST reuse a **single open `sqlite3.Connection` handle** (opened via `self.get_connection()`) to prevent SQLite database lock errors (`sqlite3.OperationalError: database is locked`).
    - `category_id` on the `"transaction"` record MUST be explicitly saved as `NULL` during ingestion so that `merchant.category_id` acts as the single source of truth for baseline categorisation.
-   
+
 ### 8.2 Dynamic Database-First Merchant Categorisation Hierarchy
 
-During raw merchant processing and ingestion, resolving `category_id` for a merchant entity MUST evaluate a strict 4-level database-first priority hierarchy prior to inserting new records[cite: 10, 14]:
+During raw merchant processing and ingestion, resolving `category_id` for a merchant entity MUST evaluate a strict 4-level database-first priority hierarchy prior to inserting new records:
 
 1. **Level 1 — Exact Database Merchant Lookup**:
-   - Query the SQLite `"merchant"` table for an exact match on `merchant_name`[cite: 10, 14].
-   - If found, reuse the existing `merchant.id` and retain its currently mapped `category_id`[cite: 10, 14]. This guarantees that all custom merchant category mappings previously saved via the Categorise UI are strictly preserved during subsequent PDF uploads[cite: 11, 14].
+   - Query the SQLite `"merchant"` table for an exact match on `merchant_name`.
+   - If found, reuse the existing `merchant.id` and retain its currently mapped `category_id`. This guarantees that all custom merchant category mappings previously saved via the Categorise UI are strictly preserved during subsequent PDF uploads.
 
 2. **Level 2 — Dynamic Database Pattern Search**:
-   - If `merchant_name` does not exist in `"merchant"`, evaluate the string against existing mapped merchants in SQLite using SQL wildcard substring matching (`LIKE '%' || pattern || '%'`)[cite: 10, 14].
-   - If a matching pattern is found in SQLite, assign the mapped `category_id` to the new merchant record[cite: 10, 14].
+   - If `merchant_name` does not exist in `"merchant"`, evaluate the string against existing mapped merchants in SQLite using SQL wildcard substring matching (`LIKE '%' || pattern || '%'`).
+   - If a matching pattern is found in SQLite, assign the mapped `category_id` to the new merchant record.
 
 3. **Level 3 — Static Keyword Dictionary Fallback**:
-   - If neither exact nor pattern matches exist in SQLite, evaluate `merchant_name` against the static default keyword rules[cite: 10, 14]:
-     - **Automotive**: `MEEK AUTOMOTIVE`, `SHANNONS`, `SUPERCHEAP AUTO`, `AUTOMOTIVE`, `MECHANIC`[cite: 10, 14]
-     - **Bank Fees**: `DCC FEE`, `FOREIGN TRANSACTION FEE`, `LATE FEE`, `INTEREST CHARGE`[cite: 10, 14]
-     - **Dining & Cafes**: `24 YORK`, `BARE WITNESS`, `BAMBOO SUSHI`, `BY V BAR`, `CONCORDIA CLUB`, `CHARGRILL OLYMPICPARK`, `EL JANNAH`, `GYUKATSU KYOTO`, `HASHI SUSHI`, `HIN TEE CHOO`, `HOONSIKDANG`, `KFC`, `MESSIN`, `SIMPLE SIMONS GELATO`, `SQ *ANGUS MARRICKVILLE`, `SQ *BELLA BACIATA`, `SQ *GOOD FELLA`, `SQ *GUMPTION`, `SQ *HEADLANDS`, `SQ *KABUL SOCIAL`, `SQ *LAB RHODES`, `SQ *MAMUKI`, `SQ *THE BERLIN FOOD`, `SQ *YUMYUM`, `THE LUCKY PLACE`, `THE MAJOR HABERFIELD`, `THE LONDON HOTEL`, `UNCLE TETSU`, `GELATO`, `GYG`, `CAFE`, `RESTAURANT`, `COFFEE`, `BAKERY`, `PATISSERIE`, `MCDONALD`[cite: 10, 14]
-     - **Fuel**: `BP `, `BP CONNECT`, `SHELL`, `AMPOL`, `7-ELEVEN`, `UNITED PETROLEUM`, `CALTEX`[cite: 10, 14]
-     - **Groceries**: `WOOLWORTHS`, `COLES`, `ALDI`, `PETBARN`, `ZETCITI`, `SUPERMARKET`, `IGAMARKET`, `GROCER`[cite: 10, 14]
-     - **Haircut**: `SQ *STUDIO NO. 4`, `BARBER`, `HAIR`, `SALON`[cite: 10, 14]
-     - **Health & Fitness**: `ADRENALINE HQ`, `CHEMIST WAREHOUSE`, `EZI*DYNASTY`, `KAPNOR`, `GYM`, `PHARMACY`, `CHEMIST`, `HEALTH`, `FITNESS`[cite: 10, 14]
-     - **Medical**: `SHIM SZE EIN`, `DOCTOR`, `CLINIC`, `DENTAL`, `MEDICAL`[cite: 10, 14]
-     - **Pet**: `PETBARN`, `VET`[cite: 10, 14]
-     - **Shopping & Retail**: `AMAZON`, `AQUILA`, `KIEHLS`, `REBEL`, `UNIQLO`, `BUNNINGS`, `KMART`, `TARGET`, `APPLE`[cite: 10, 14]
-     - **Subscriptions**: `CANVA`, `NETFLIX`, `PDF.NET`, `SPOTIFY`, `APPLE.COM/BILL`, `YOUTUBE`, `PRIME`, `DISNEY`[cite: 10, 14]
-     - **Transport**: `OPAL`, `PARKING`, `UBER`, `TAXI`, `TRANSPORT`, `TRANSIT`[cite: 10, 14]
-     - **Utilities**: `TELSTRA`, `OPTUS`, `ENERGY`, `WATER`, `AANET`, `AGL`, `ORIGIN`[cite: 10, 14]
+   - If neither exact nor pattern matches exist in SQLite, evaluate `merchant_name` against the static default keyword rules:
+     - **Automotive**: `MEEK AUTOMOTIVE`, `SHANNONS`, `SUPERCHEAP AUTO`, `AUTOMOTIVE`, `MECHANIC`
+     - **Bank Fees**: `DCC FEE`, `FOREIGN TRANSACTION FEE`, `LATE FEE`, `INTEREST CHARGE`
+     - **Dining & Cafes**: `24 YORK`, `BARE WITNESS`, `BAMBOO SUSHI`, `BY V BAR`, `CONCORDIA CLUB`, `CHARGRILL OLYMPICPARK`, `EL JANNAH`, `GYUKATSU KYOTO`, `HASHI SUSHI`, `HIN TEE CHOO`, `HOONSIKDANG`, `KFC`, `MESSIN`, `SIMPLE SIMONS GELATO`, `SQ *ANGUS MARRICKVILLE`, `SQ *BELLA BACIATA`, `SQ *GOOD FELLA`, `SQ *GUMPTION`, `SQ *HEADLANDS`, `SQ *KABUL SOCIAL`, `SQ *LAB RHODES`, `SQ *MAMUKI`, `SQ *THE BERLIN FOOD`, `SQ *YUMYUM`, `THE LUCKY PLACE`, `THE MAJOR HABERFIELD`, `THE LONDON HOTEL`, `UNCLE TETSU`, `GELATO`, `GYG`, `CAFE`, `RESTAURANT`, `COFFEE`, `BAKERY`, `PATISSERIE`, `MCDONALD`
+     - **Fuel**: `BP `, `BP CONNECT`, `SHELL`, `AMPOL`, `7-ELEVEN`, `UNITED PETROLEUM`, `CALTEX`
+     - **Groceries**: `WOOLWORTHS`, `COLES`, `ALDI`, `PETBARN`, `ZETCITI`, `SUPERMARKET`, `IGAMARKET`, `GROCER`
+     - **Haircut**: `SQ *STUDIO NO. 4`, `BARBER`, `HAIR`, `SALON`
+     - **Health & Fitness**: `ADRENALINE HQ`, `CHEMIST WAREHOUSE`, `EZI*DYNASTY`, `KAPNOR`, `GYM`, `PHARMACY`, `CHEMIST`, `HEALTH`, `FITNESS`
+     - **Medical**: `SHIM SZE EIN`, `DOCTOR`, `CLINIC`, `DENTAL`, `MEDICAL`
+     - **Pet**: `PETBARN`, `VET`
+     - **Shopping & Retail**: `AMAZON`, `AQUILA`, `KIEHLS`, `REBEL`, `UNIQLO`, `BUNNINGS`, `KMART`, `TARGET`, `APPLE`
+     - **Subscriptions**: `CANVA`, `NETFLIX`, `PDF.NET`, `SPOTIFY`, `APPLE.COM/BILL`, `YOUTUBE`, `PRIME`, `DISNEY`
+     - **Transport**: `OPAL`, `PARKING`, `UBER`, `TAXI`, `TRANSPORT`, `TRANSIT`
+     - **Utilities**: `TELSTRA`, `OPTUS`, `ENERGY`, `WATER`, `AANET`, `AGL`, `ORIGIN`
 
 4. **Level 4 — Default Fallback**:
-   - If no database entity, database pattern, or static dictionary rule matches, set `category_id = 1` (`Uncategorised`) on the new `merchant` entity record[cite: 10, 14].
+   - If no database entity, database pattern, or static dictionary rule matches, set `category_id = 1` (`Uncategorised`) on the new `merchant` entity record.
 
-*Note: The categorisation logic assigns `category_id` strictly at the `merchant` entity level upon creation. Individual `"transaction"` records inherit this mapping via database joins and remain `category_id = NULL` at ingestion time.*[cite: 10, 14]
+*Note: The categorisation logic assigns `category_id` strictly at the `merchant` entity level upon creation. Individual `"transaction"` records inherit this mapping via database joins and remain `category_id = NULL` at ingestion time.*
