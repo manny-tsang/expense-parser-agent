@@ -92,7 +92,7 @@ class PersonalExpenseTracker:
     def inject_css(page_title: str) -> None:
         css = f"""
         <style>
-        /* 1. Sidebar Header & Collapse Toggle Alignment */
+        /* 1. Sidebar Header Alignment */
         [data-testid="stSidebarHeader"] {{
             display: none !important;
         }}
@@ -212,6 +212,10 @@ class PersonalExpenseTracker:
         return str(selected)
 
     def render_upload_page(self) -> None:
+        st.markdown(
+            "Upload a PDF statement to process into anonymised transactions to be stored and used for budget planning."
+        )
+
         df = self.repo.get_transactions_dataframe()
         total_txns = len(df)
         period_from, period_to = self.get_date_range(df)
@@ -220,10 +224,6 @@ class PersonalExpenseTracker:
 
         with col1:
             with st.container(border=True, height="stretch"):
-                # st.markdown(
-                #     '<div class="metric-card-container">Upload a PDF statement</div>',
-                #     unsafe_allow_html=True,
-                # )
                 st.subheader("Upload a PDF statement")
                 uploaded_file = st.file_uploader(
                     "Upload PDF", type=["pdf"], label_visibility="collapsed"
@@ -266,7 +266,9 @@ class PersonalExpenseTracker:
                             tmp_file.write(uploaded_file.getvalue())
                             tmp_path = tmp_file.name
 
-                        result = parse_statement(tmp_path, DB_PATH)
+                        result = parse_statement(
+                            tmp_path, db_path=DB_PATH, original_filename=uploaded_file.name
+                        )
                         if isinstance(result, pd.DataFrame) and not result.empty:
                             st.session_state["upload_success"] = True
                             st.rerun()
@@ -294,20 +296,18 @@ class PersonalExpenseTracker:
             "This is a list of the raw transactions as they've been imported from the uploaded PDF statement."
         )
 
-        display_cols = [
-            c
-            for c in [
-                "trans_date",
-                "merchant",
-                "category_name",
-                "txn_amount",
-                "purchase_currency",
-                "hkd_amount",
-                "fx_rate",
-            ]
-            if c in df.columns
-        ]
-        display_df = df[display_cols] if not df.empty and display_cols else df
+        col_mapping = {
+            "trans_date": "Transaction Date",
+            "merchant": "Merchant",
+            "category_name": "Category",
+            "txn_amount": "Amount",
+            "purchase_currency": "Currency",
+            "hkd_amount": "HKD Amount",
+            "fx_rate": "FX Rate",
+        }
+
+        display_cols = [c for c in col_mapping.keys() if c in df.columns]
+        display_df = df[display_cols].rename(columns=col_mapping) if not df.empty else pd.DataFrame(columns=list(col_mapping.values()))
 
         total_rows = len(display_df)
         page_size = 10
@@ -641,7 +641,6 @@ class PersonalExpenseTracker:
         if not categories_df.empty and "category_name" in categories_df.columns:
             category_list = categories_df["category_name"].dropna().tolist()
 
-        # Prepare base dataframe with datetime conversion
         df = raw_df.copy() if not raw_df.empty else pd.DataFrame()
         if not df.empty and "trans_date" in df.columns:
             df["trans_date_dt"] = pd.to_datetime(df["trans_date"], errors="coerce")
@@ -657,7 +656,6 @@ class PersonalExpenseTracker:
             df["category_name"] = "Uncategorised"
         df["category_name"] = df["category_name"].fillna("Uncategorised")
 
-        # Row 1 Layout: Donut Chart (Col 1) and Filter Control Card (Col 2)
         col1, col2 = st.columns([3, 2])
 
         with col2:
@@ -697,7 +695,6 @@ class PersonalExpenseTracker:
                     key="charts_outlier_threshold",
                 )
 
-        # Apply filtering
         today = pd.Timestamp.today().normalize()
         start_date: Optional[pd.Timestamp] = None
         end_date: Optional[pd.Timestamp] = None
@@ -731,13 +728,11 @@ class PersonalExpenseTracker:
             if selected_categories:
                 filtered_df = filtered_df[filtered_df["category_name"].isin(selected_categories)]
 
-        # Determine non-AUD transactions
         has_non_aud = False
         if not filtered_df.empty and "purchase_currency" in filtered_df.columns:
             non_aud_mask = filtered_df["purchase_currency"].astype(str).str.upper().ne("AUD")
             has_non_aud = bool(non_aud_mask.any())
 
-        # Render Donut Chart (Col 1)
         with col1:
             with st.container(border=True, height="stretch"):
                 st.subheader("Expense Category Breakdown")
@@ -798,7 +793,6 @@ class PersonalExpenseTracker:
                 if has_non_aud:
                     st.caption("ℹ️ Transactions in currencies other than AUD")
 
-        # Row 2: Expense Category Statistics Table
         st.write("")
         with st.container(border=True):
             st.subheader("Expense Category Statistics")
@@ -809,7 +803,6 @@ class PersonalExpenseTracker:
             if filtered_df.empty:
                 st.info("No transaction data available for statistics.")
             else:
-                # Calculate months in range N
                 valid_dates = filtered_df["trans_date_dt"].dropna()
                 if not valid_dates.empty:
                     min_date = valid_dates.min()
@@ -842,7 +835,6 @@ class PersonalExpenseTracker:
                     t_count = int(row["txn_count"])
                     m_single = float(row["max_single_txn"])
 
-                    # Apply outlier visual indicator (asterisk)
                     is_outlier = m_single > outlier_threshold
                     max_single_str = f"${m_single:,.2f}*" if is_outlier else f"${m_single:,.2f}"
 
