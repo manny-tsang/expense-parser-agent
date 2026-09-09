@@ -122,23 +122,30 @@ class DatabaseRepository(BaseDatabaseRepository):
                 cursor.connection.close()
 
     def persist_statement_transactions(
-        self, raw_txns: List[Dict[str, Any]], filename: str
+        self,
+        raw_txns: List[Dict[str, Any]],
+        filename: str,
+        conn: Optional[sqlite3.Connection] = None,
     ) -> None:
         """Writes batch transactions with transaction.category_id = NULL during ingestion and logs filename.
         All lookups and insertions reuse a single open sqlite3.Connection.
         """
-        self.init_db(filename=filename)
+        own_conn = conn is None
+        if own_conn:
+            self.init_db(filename=filename)
+            active_conn = self.get_connection()
+        else:
+            active_conn = conn
 
-        conn = self.get_connection()
         try:
-            cursor = conn.cursor()
+            cursor = active_conn.cursor()
 
-            # Verify statement log again before writing
-            cursor.execute(
-                'SELECT id FROM "statement_log" WHERE filename = ?', (filename,)
-            )
-            if cursor.fetchone():
-                raise ValueError(f"Statement '{filename}' has already been processed.")
+            if not own_conn:
+                cursor.execute(
+                    'SELECT id FROM "statement_log" WHERE filename = ?', (filename,)
+                )
+                if cursor.fetchone():
+                    raise ValueError(f"Statement '{filename}' has already been processed.")
 
             cursor.execute('SELECT category_name, id FROM "category"')
             cat_map = {row[0]: row[1] for row in cursor.fetchall()}
@@ -199,9 +206,11 @@ class DatabaseRepository(BaseDatabaseRepository):
             cursor.execute(
                 'INSERT INTO "statement_log" (filename) VALUES (?)', (filename,)
             )
-            conn.commit()
+            if own_conn:
+                active_conn.commit()
         finally:
-            conn.close()
+            if own_conn and active_conn:
+                active_conn.close()
 
 
 class HKStatementParser:
@@ -223,12 +232,17 @@ class HKStatementParser:
         self.db_path = db_path or self.DEFAULT_DB_PATH
         self.repo = DatabaseRepository(db_path=self.db_path)
 
-    def process(self, pdf_path: str, output_csv_path: Optional[str] = None) -> pd.DataFrame:
+    def process(
+        self,
+        pdf_path: str,
+        output_csv_path: Optional[str] = None,
+        original_filename: Optional[str] = None
+    ) -> pd.DataFrame:
         """Main pipeline for parsing PDF statement, persisting to DB, and outputting DataFrame/CSV."""
-        filename = os.path.basename(pdf_path)
+        log_filename = original_filename if original_filename else os.path.basename(pdf_path)
 
-        # Initialize DB and check statement log duplicate
-        self.repo.init_db(filename)
+        # Initialize DB and check statement log duplicate prior to parsing
+        self.repo.init_db(filename=log_filename)
 
         raw_txns: List[Dict[str, Any]] = []
 
@@ -312,8 +326,13 @@ class HKStatementParser:
         # Filter out waived annual fee reversals
         raw_txns = self._filter_fee_reversals(raw_txns)
 
-        # Persistence to SQLite via DatabaseRepository
-        self.repo.persist_statement_transactions(raw_txns, filename)
+        # Single Connection Batch Persistence to SQLite
+        conn = self.repo.get_connection()
+        try:
+            self.repo.persist_statement_transactions(raw_txns, log_filename, conn=conn)
+            conn.commit()
+        finally:
+            conn.close()
 
         # Build final DataFrame with exact required schema
         df_columns = [
@@ -494,8 +513,9 @@ class HKStatementParser:
 def parse_statement(
     pdf_path: str,
     output_csv_path: Optional[str] = None,
-    db_path: str = "db/personal-expense-tracker.db"
+    db_path: str = "db/personal-expense-tracker.db",
+    original_filename: Optional[str] = None
 ) -> pd.DataFrame:
     """Entry point function to parse HK Credit Card PDF statements."""
     parser = HKStatementParser(db_path=db_path)
-    return parser.process(pdf_path, output_csv_path)
+    return parser.process(pdf_path, output_csv_path, original_filename=original_filename)
