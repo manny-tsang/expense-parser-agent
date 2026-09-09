@@ -23,14 +23,15 @@ SO THAT I can audit spending anomalies, resolve foreign currency inaccuracies, a
 
 #### Row 1: Search & Filter Card (`st.container(border=True)`)
 - `st.subheader("Filter Transactions")`
-- Text Search: `st.text_input("Search Merchant / Description", key="search_query_input")`
-- Category Filter: `st.multiselect("Filter Categories", options=category_list, key="search_category_filter")`
-- Date Controls: `st.radio("Date Range", options=["This Month", "Last 3 Months", "Last 6 Months", "Year to Date", "All Time"], index=4, horizontal=True, key="search_date_preset")` and `st.date_input("Custom Date Range", value=(), key="search_custom_date")`
-- Amount Range: `st.columns(2)` for `st.number_input("Min Amount ($)", value=0.0, step=10.0, key="search_min_amt")` and `st.number_input("Max Amount ($)", value=0.0, step=50.0, key="search_max_amt")`.
+- **Input Controls (`st.columns(3)`)**:
+  - **Merchant Search**: `st.text_input("Merchant name", key="search_merchant_input")` (Supports partial or full merchant name matching).
+  - **Transaction Amount**: `st.number_input("Transaction amount", value=None, step=10.0, key="search_amount_input")` (Filters for specific transaction amount matching).
+  - **Transaction Date**: `st.date_input("Transaction date", value=None, key="search_date_input")` (Filters by specific transaction date).
 
 #### Row 2: Search Results Table (Full Width)
 - Full-width DataFrame displaying filtered transaction hits sliced at 10 rows per page with Previous/Next page controls.
 - Columns: `Transaction date`, `Merchant name`, `Category`, `Transaction amount`, `HKD amount`, `FX rate`.
+- **Empty State**: Displays clear info message (`st.info("No matching records were found.")`) when no transactions match the active criteria.
 
 #### Row 3: Transaction Remediation Card (`st.container(border=True)`)
 - `st.subheader("Edit Selected Transaction")`
@@ -38,9 +39,9 @@ SO THAT I can audit spending anomalies, resolve foreign currency inaccuracies, a
 - Selectbox: `st.selectbox("Select Transaction", options=matching_tx_ids, format_func=..., key="search_edit_tx_select")`
 - Readout: Read-only summary showing raw merchant description, date, and original currency.
 - Form Inputs (`st.columns(3)`):
-  - `st.selectbox("New Category", options=category_list, key="search_edit_cat_select")`
-  - `st.number_input("Transaction amount ($AUD)", min_value=0.01, step=0.01, key="search_edit_aud")`
-  - `st.number_input("FX rate", min_value=0.00001, step=0.00001, key="search_edit_fx")`
+  - `st.selectbox("Category", options=category_list, key="search_edit_cat_select")`
+  - `st.text_input("Transaction amount ($AUD)", key="search_edit_aud")`
+  - `st.text_input("FX rate", key="search_edit_fx")`
 - Field Validation Rules:
   - Empty fields strictly block updates and display inline error message: `"Update cannot be performed with empty values."`
   - Category field input MUST contain ONLY letters, spaces, ampersands (&), hyphens (-), or slashes (/). Otherwise display: `"Input must contain ONLY letters, spaces, ampersands (&), hyphens (-), or slashes (/)."`.
