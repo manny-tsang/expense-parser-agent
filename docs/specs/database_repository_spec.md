@@ -129,6 +129,13 @@ The `DatabaseRepository` class inside `src/repository.py` must expose the follow
 
 ### 5.2 Query & Read Contracts
 - `get_transactions_dataframe(self) -> pd.DataFrame`: Returns a DataFrame containing all transactions joined with `merchant`, `category` (supporting transaction-level override via `COALESCE(override_cat.category_name, default_cat.category_name)`), and `currency`. Output columns: `id`, `trans_date`, `merchant`, `category_name`, `txn_amount`, `purchase_currency`, `hkd_amount`, `fx_rate`, `category_id`.
+- `search_transactions(self, query: Optional[str] = None, category_ids: Optional[List[int]] = None, start_date: Optional[str] = None, end_date: Optional[str] = None, min_amount: Optional[float] = None, max_amount: Optional[float] = None) -> pd.DataFrame`: Executes a parameterized SQL query searching across historical transactions joined with `merchant`, `category` (evaluated via `COALESCE(override_cat.category_name, default_cat.category_name)`), and `currency`.
+  - **Filtering Logic**:
+    - `query`: Case-insensitive substring search matching `merchant.merchant_name`.
+    - `category_ids`: Filters by category ID list (matching resolved `category_id`).
+    - `start_date` / `end_date`: Filters records where `trans_date BETWEEN start_date AND end_date`.
+    - `min_amount` / `max_amount`: Filters records where `txn_amount` falls within the range.
+  - **Output Columns**: `id`, `trans_date`, `merchant_name`, `category_name`, `txn_amount`, `purchase_currency`, `hkd_amount`, `fx_rate`, `category_id`.
 - `get_categories(self) -> pd.DataFrame`: Returns DataFrame of all categories (`id`, `category_name`) ordered by `category_name ASC`.
 - `get_merchants(self) -> pd.DataFrame`: Returns DataFrame of ALL merchants joined with their mapped category name (`merchant_id`, `merchant_name`, `category_id`, `category_name`) ordered by `merchant_name ASC`.
 - `get_uncategorised_merchants(self) -> pd.DataFrame`: Returns DataFrame of distinct merchants where `m.category_id = 1` AND `t.category_id IS NULL`, grouped with `transaction_count`. Output columns: `merchant_id`, `merchant_name`, `transaction_count`.
@@ -138,6 +145,7 @@ The `DatabaseRepository` class inside `src/repository.py` must expose the follow
 - `add_category(self, category_name: str) -> bool`: Inserts a new category into `"category"`. Returns `True` on success, `False` on failure.
 - `update_merchant_category(self, merchant_id_or_name: Union[int, str], category_id: int) -> bool`: Updates `category_id` on `merchant` record by `id` or `merchant_name`. Returns `True` on success.
 - `update_transaction_category(self, transaction_id: int, category_id: int) -> bool`: Updates `category_id` directly on `"transaction"` row for explicit overrides. Returns `True` on success.
+- `update_transaction_details(self, transaction_id: int, category_id: Optional[int] = None, txn_amount: Optional[float] = None, fx_rate: Optional[float] = None) -> bool`: Updates category override (`category_id`), transaction amount (`txn_amount`), and/or exchange rate (`fx_rate`) for a single record in `"transaction"` matching `transaction_id`. Returns `True` on success, `False` on failure.
 - `get_or_create_merchant(self, cursor: sqlite3.Cursor, merchant_name: str, cat_id: int) -> int`: Retrieves existing `merchant.id` or inserts a new merchant row with `cat_id`.
 - `get_or_create_country(self, cursor: sqlite3.Cursor, country_code: Optional[str]) -> Optional[int]`: Resolves or creates `country.id`.
 - `get_or_create_currency(self, cursor: sqlite3.Cursor, currency_code: Optional[str], country_id: Optional[int]) -> Optional[int]`: Resolves or creates `currency.id`.

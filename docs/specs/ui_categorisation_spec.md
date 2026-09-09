@@ -2,8 +2,8 @@
 
 ## 1. Objective
 AS A Personal Tracker User  
-I WANT TO manage canonical merchant entities in SQLite and map them to categories or override individual transactions via the Streamlit UI  
-SO THAT I can accurately categorize recurring merchants globally while retaining the flexibility to reclassify unique, one-off transactions.
+I WANT TO manage canonical merchant entities in SQLite and map them to categories via the Streamlit UI  
+SO THAT I can accurately categorize recurring merchants globally across the application.
 
 ## 2. Technical Stack & Dependencies
 - **Language**: Python 3.x
@@ -23,27 +23,27 @@ The schema relies on the canonical `merchant` table created during parser initia
 
 - **`category` Table**: Stores category entities (`id`, `category_name`).
 - **`merchant` Table**: Stores unique merchant entities (`id`, `merchant_name`, `category_id`).
-- **`transaction` Table**: Links each record to `merchant.id` via `merchant_id`. `transaction.category_id` serves purely as an optional explicit override (`NULL` indicates no override).
+- **`transaction` Table**: Links each record to `merchant.id` via `merchant_id`. `transaction.category_id` serves as an optional explicit line-item override.
 
 ### 3.2 UI Query Contracts (`src/app.py`)
 - **Add New Category**: Inserts a new unique record into the `category` table via `INSERT INTO "category" ("category_name") VALUES (?)`.
 - **Global Merchant Mapping**: Updates `category_id` directly on the `merchant` record via `UPDATE merchant SET category_id = ? WHERE id = ?`.
-- **Transaction Override**: Updates `category_id` directly on the specific `transaction` row via `UPDATE "transaction" SET category_id = ? WHERE id = ?`.
+
+---
 
 ## 4. UI Design Principles & Workflow Layout (`src/app.py`)
 
 ### 4.1 Navigation Expansion
-Expand sidebar navigation in `render_sidebar()` to include the new view:
-- **Menu Options**: `["Dashboard", "Upload", "Categorise", "Charts"]`
-- **Icons**: `["house", "cloud-upload", "tag", "bar-chart"]`
+Expand sidebar navigation in `render_sidebar()` to include all application views:
+- **Menu Options**: `["Dashboard", "Upload", "Categorise", "Charts", "Search"]`
+- **Icons**: `["house", "cloud-upload", "tag", "bar-chart", "search"]`
 
 ### 4.2 Categorise Page Two-Row Layout Structure
 The Categorise view layout MUST be organized into **two main rows**:
 
-- **Row 1 (3 Equal Columns)**:
+- **Row 1 (2 Equal Columns)**:
   - **Column 1**: `Add new category` section.
   - **Column 2**: `Merchant mapping` section.
-  - **Column 3**: `Update transaction category` section.
 - **Row 2 (Full Width)**:
   - `Uncategorised merchants` section listing table across full page width.
 
@@ -107,41 +107,7 @@ The Categorise view layout MUST be organized into **two main rows**:
 
 ---
 
-### 4.5 Section 3: Update Transaction Category (`Row 1, Column 3`)
-- **Container Wrapper**: Enclosed inside `st.container(border=True, height="stretch")`.
-- **Section Heading**: `st.subheader("Update transaction category")`
-- **Description Text**: `st.markdown("Update the category for a single transaction where the default category is not suitable. Example: 'BP' transaction not for 'Fuel'.")`
-- **UI Input Components**:
-  - **Transaction Selector**: `st.selectbox("Transaction", options=tx_ids, format_func=lambda tx_id: tx_display_map.get(tx_id, "Select a transaction"), key="selected_tx_dropdown")`
-    - `tx_ids`: List of primitive IDs starting with `None` for placeholder: `[None] + tx_df["id"].tolist()`.
-    - `tx_display_map`: Dictionary mapping `tx_id` -> formatted label string (`<trans_date> | <merchant> | <purchase_currency> <txn_amount>`). Placeholder `None` maps to `"Select a transaction"`.
-    - `tx_cat_map`: Dictionary mapping `tx_id` -> current category name (`category_name`). Placeholder `None` maps to `""`.
-  - **Category Selection Layout (2 Sub-Columns)**:
-    - **Sub-column 1 (`Current category`)**:
-      - Read-only text input dynamically keyed to avoid Streamlit state locking:
-        `st.text_input("Current category", value=tx_cat_map.get(selected_tx_id, ""), disabled=True, key=f"current_cat_display_{selected_tx_id}")`.
-      - When `selected_tx_id` is `None`, value MUST be `""`.
-    - **Sub-column 2 (`New category`)**: `st.selectbox("New category", options=["Select a category"] + category_list, key="tx_cat_select")`
-      - Default selection MUST be `"Select a category"`.
-  - **Action Button**: `st.button("Update transaction category", type="primary", key="update_tx_category")`
-- **Validation & Modal Confirmation Logic (`@st.dialog(title="Confirm transaction category update", width="small")`)**:
-  - Signature: `def confirm_tx_category_dialog(current_cat_name: str, selected_new_cat: str, selected_tx_id: int, new_cat_id: int) -> None:`
-  - **Repository Instantiation**: Must instantiate `DatabaseRepository(DB_PATH)` directly inside the dialog function body.
-  - When `"Update transaction category"` is clicked:
-    - **Selection Check**: Validate that `selected_tx_id` is not `None` AND `New category` != `"Select a category"`. If either is unselected, render `st.error("Please select both a transaction and a new category before updating.")` and halt.
-    - **Same Category Check**: Check if `selected_new_cat` is equal to `current_cat_name`. If equal, render `st.error("'Current category' and 'New category' must not be the same.")` and halt.
-    - If all validations pass, invoke the modal dialog directly:
-      - **Modal Title**: `"Confirm transaction category update"`
-      - **Modal Width**: `width="small"`
-      - **Modal Body Text**: `Please confirm that this transaction's category is to be updated from '<current_cat_name>' to '<selected_new_cat>'?`
-      - **Action Buttons Layout (`col1, col2`)**:
-        - **"Cancel"** (`use_container_width=True`): Closes modal and returns to page without changes (`st.rerun()`).
-        - **"Update"** (`type="primary"`, `use_container_width=True`): Executes `update_transaction_category(int(selected_tx_id), new_cat_id)` in repository and invokes `st.rerun()`.
-      - **State Leak Prevention Rule**: Do NOT store sticky boolean flags in `st.session_state` (e.g., `show_tx_dialog = True`) that persist across unrelated widget interactions. Call `@st.dialog` functions directly or reset state flags immediately upon invocation.
-
----
-
-### 4.6 Section 4: Uncategorised Merchants (`Row 2, Full Width`)
+### 4.5 Section 3: Uncategorised Merchants (`Row 2, Full Width`)
 - **Section Heading**: `st.subheader("Uncategorised merchants")`
 - **Description Sub-text**: `st.markdown("List of merchants currently assigned to 'Uncategorised' requiring mapping.")`
 - **Query Strategy**: Group transactions by `merchant_id` where `m.category_id = 1` and `t.category_id IS NULL`.
@@ -158,7 +124,7 @@ The Categorise view layout MUST be organized into **two main rows**:
 
 ---
 
-### 4.7 Streamlit Dialog Architecture & Scope Contract
+### 4.6 Streamlit Dialog Architecture & Scope Contract
 - **Module-Level Declaration**: All `@st.dialog` functions MUST be declared as top-level functions outside the `PersonalExpenseTracker` class to satisfy Streamlit fragment execution rules.
 - **Parameter Restrictions**: `@st.dialog` functions MUST NOT accept `self` or `DatabaseRepository` class instances as arguments.
 - **Internal Database Instantiation**: Dialog functions must import `DatabaseRepository` from `src.repository` (or `repository`) and instantiate `DatabaseRepository(DB_PATH)` locally inside the function body to execute updates cleanly across reruns.
@@ -218,24 +184,6 @@ THEN `category_id` updates directly on the `merchant` record in SQLite, re-categ
 ---
 
 ### Story 3
-**Target Epic**: `PET-3`  
-**Title**: `[ UI | PY | DB ] Transaction-Level Category Override`
-
-**Description**:
-AS A Personal Tracker User  
-I WANT TO edit and override the category of an individual transaction directly in the UI  
-SO THAT I can reclassify one-off purchases without altering the global category for that merchant.
-
-Acceptance Criteria:
-
-Scenario 1: Individual Transaction Category Update  
-GIVEN I am inspecting the transactions override control in Streamlit  
-WHEN I change the category of a specific transaction row and submit the change  
-THEN only that single row's `category_id` in the `transaction` table is updated while leaving the parent `merchant` default category unchanged.
-
----
-
-### Story 4
 **Target Epic**: `PET-3`  
 **Title**: `[ UI | PY | DB ] Dynamic Custom Category Creation & Validation`
 
