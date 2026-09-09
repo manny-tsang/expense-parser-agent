@@ -287,6 +287,90 @@ class DatabaseRepository:
         finally:
             conn.close()
 
+    def search_transactions(
+        self,
+        query: Optional[str] = None,
+        category_ids: Optional[List[int]] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        min_amount: Optional[float] = None,
+        max_amount: Optional[float] = None,
+    ) -> pd.DataFrame:
+        """Executes a parameterized SQL query searching across historical transactions."""
+        self.init_db()
+        conn = self.get_connection()
+        try:
+            sql = """
+                SELECT 
+                    t.id AS id,
+                    t.trans_date AS trans_date,
+                    m.merchant_name AS merchant_name,
+                    COALESCE(override_cat.category_name, default_cat.category_name) AS category_name,
+                    t.txn_amount AS txn_amount,
+                    c.currency_code AS purchase_currency,
+                    t.hkd_amount AS hkd_amount,
+                    t.fx_rate AS fx_rate,
+                    COALESCE(t.category_id, m.category_id) AS category_id
+                FROM "transaction" t
+                LEFT JOIN "merchant" m ON t.merchant_id = m.id
+                LEFT JOIN "category" default_cat ON m.category_id = default_cat.id
+                LEFT JOIN "category" override_cat ON t.category_id = override_cat.id
+                LEFT JOIN "currency" c ON t.purchase_currency_id = c.id
+            """
+            conditions = []
+            params: List[Any] = []
+
+            if query:
+                conditions.append("m.merchant_name LIKE ?")
+                params.append(f"%{query}%")
+
+            if category_ids:
+                placeholders = ", ".join(["?"] * len(category_ids))
+                conditions.append(f"COALESCE(t.category_id, m.category_id) IN ({placeholders})")
+                params.extend(category_ids)
+
+            if start_date and end_date:
+                conditions.append("t.trans_date BETWEEN ? AND ?")
+                params.extend([start_date, end_date])
+            elif start_date:
+                conditions.append("t.trans_date >= ?")
+                params.append(start_date)
+            elif end_date:
+                conditions.append("t.trans_date <= ?")
+                params.append(end_date)
+
+            if min_amount is not None:
+                conditions.append("t.txn_amount >= ?")
+                params.append(min_amount)
+
+            if max_amount is not None:
+                conditions.append("t.txn_amount <= ?")
+                params.append(max_amount)
+
+            if conditions:
+                sql += " WHERE " + " AND ".join(conditions)
+
+            sql += " ORDER BY t.trans_date DESC, t.id DESC"
+
+            df = pd.read_sql_query(sql, conn, params=params)
+            expected_cols = [
+                'id',
+                'trans_date',
+                'merchant_name',
+                'category_name',
+                'txn_amount',
+                'purchase_currency',
+                'hkd_amount',
+                'fx_rate',
+                'category_id',
+            ]
+            for col in expected_cols:
+                if col not in df.columns:
+                    df[col] = None
+            return df[expected_cols]
+        finally:
+            conn.close()
+
     def get_categories(self) -> pd.DataFrame:
         """Returns DataFrame of all categories (id, category_name) ordered by category_name ASC."""
         self.init_db()
@@ -428,6 +512,44 @@ class DatabaseRepository:
                 'UPDATE "transaction" SET category_id = ? WHERE id = ?',
                 (category_id, transaction_id),
             )
+            conn.commit()
+            return True
+        except Exception:
+            return False
+        finally:
+            conn.close()
+
+    def update_transaction_details(
+        self,
+        transaction_id: int,
+        category_id: Optional[int] = None,
+        txn_amount: Optional[float] = None,
+        fx_rate: Optional[float] = None,
+    ) -> bool:
+        """Updates category override, transaction amount, and/or exchange rate for a single transaction record."""
+        self.init_db()
+        conn = self.get_connection()
+        try:
+            cursor = conn.cursor()
+            updates = []
+            params = []
+
+            if category_id is not None:
+                updates.append("category_id = ?")
+                params.append(category_id)
+            if txn_amount is not None:
+                updates.append("txn_amount = ?")
+                params.append(txn_amount)
+            if fx_rate is not None:
+                updates.append("fx_rate = ?")
+                params.append(fx_rate)
+
+            if not updates:
+                return True
+
+            params.append(transaction_id)
+            query = f'UPDATE "transaction" SET {", ".join(updates)} WHERE id = ?'
+            cursor.execute(query, params)
             conn.commit()
             return True
         except Exception:
