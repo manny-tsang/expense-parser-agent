@@ -64,7 +64,7 @@ The resulting dataframe/CSV must contain the following exact header columns in t
 * **Exchange Rate (`fx_rate`):** Preserve raw numeric decimal values (e.g., `5.64289`) without a `$` sign.
 
 ### Function Interface Contract
-* Module Entry Point: `parse_statement(pdf_path: str, output_csv_path: Optional[str] = None) -> pd.DataFrame`
+* Module Entry Point: `parse_statement(pdf_path: str, output_csv_path: Optional[str] = None, db_path: str = "db/personal-expense-tracker.db", original_filename: Optional[str] = None) -> pd.DataFrame`
 
 ---
 
@@ -83,12 +83,13 @@ The resulting dataframe/CSV must contain the following exact header columns in t
   - `HKStatementParser` imports `DatabaseRepository` using standard import/fallback (`try: from src.repository import DatabaseRepository except ImportError: from repository import DatabaseRepository`) to handle reference lookups, entity creation, duplicate checks, and transaction persistence.
 
 ### 8.1 Ingestion & Persistence Pipeline & Connection Lifecycle
-During PDF statement processing (`HKStatementParser.process`):
-1. **Repository Instantiation**: Initialize `DatabaseRepository(db_path)`.
-2. **Duplicate Statement Check**: Call `repo.init_db(filename)` prior to parsing. If `filename` exists in `statement_log`, it raises `ValueError("Statement '<filename>' has already been processed.")`.
-3. **Transaction Ingestion**: Parse PDF text into raw transaction dictionaries (`post_date`, `trans_date`, `merchant`, `country`, `purchase_currency`, `aud_amount`, `hkd_amount`, `fx_rate`).
-4. **Exclusion Filtering**: Filter out waived card annual fee reversals and transactions containing `IFS PAYMENT` or `PAYMENT - THANK YOU`.
-5. **Single Connection Batch Persistence**: Pass the cleaned transaction list to `repo.persist_statement_transactions(raw_txns, filename)` to insert records into `merchant`, `country`, `currency`, and `"transaction"` tables.
+During PDF statement processing (`HKStatementParser.process(pdf_path, output_csv_path, original_filename=None)`):
+1. **Filename Resolution**: Resolve the target logging filename using `log_filename = original_filename if original_filename else os.path.basename(pdf_path)`.
+2. **Repository Instantiation**: Initialize `DatabaseRepository(db_path)`.
+3. **Duplicate Statement Check**: Call `repo.init_db(filename=log_filename)` prior to parsing. If `log_filename` exists in `statement_log`, raise `ValueError(f"Statement '{log_filename}' has already been processed.")`.
+4. **Transaction Ingestion**: Parse PDF text into raw transaction dictionaries (`post_date`, `trans_date`, `merchant`, `country`, `purchase_currency`, `aud_amount`, `hkd_amount`, `fx_rate`).
+5. **Exclusion Filtering**: Filter out waived card annual fee reversals and transactions containing `IFS PAYMENT` or `PAYMENT - THANK YOU`.
+6. **Single Connection Batch Persistence**: Pass the cleaned transaction list to `repo.persist_statement_transactions(raw_txns, filename=log_filename, conn=conn)` to insert records into `merchant`, `country`, `currency`, and `"transaction"` tables.
    - **Connection Lifecycle Rule**: All category map lookups, merchant resolution checks, and batch transaction `INSERT` statements executed inside `persist_statement_transactions` MUST reuse a **single open `sqlite3.Connection` handle** (opened via `self.get_connection()`) to prevent SQLite database lock errors (`sqlite3.OperationalError: database is locked`).
    - `category_id` on the `"transaction"` record MUST be explicitly saved as `NULL` during ingestion so that `merchant.category_id` acts as the single source of truth for baseline categorisation.
 

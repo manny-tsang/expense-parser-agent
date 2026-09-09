@@ -74,6 +74,7 @@ Inject strict CSS via `inject_css(page_title)` to maintain top margin offset, so
     - **Card 1 (File Picker)**:
       - Helper label: `"Upload a PDF statement"`.
       - Widgets: `st.file_uploader` (PDFs only, `label_visibility="collapsed"`) and `st.button("Process Statement", type="primary", use_container_width=True)`.
+      - **Upload Execution Contract**: Upon clicking "Process Statement", pass `uploaded_file.name` as `original_filename` into `parse_statement(tmp_path, DB_PATH, original_filename=uploaded_file.name)`. This guarantees that the user's actual uploaded filename (e.g., `2026-07-07_Statement.pdf`) is saved to `statement_log.filename` rather than the system tempfile path name (e.g., `tmp2cli4ms8.pdf`).
     - **Card 2 (Total Transactions Uploaded)**:
       - Content inside `<div class="metric-card-container">`:
         - Top-aligned Label: `"Total transactions uploaded"`
@@ -86,35 +87,35 @@ Inject strict CSS via `inject_css(page_title)` to maintain top margin offset, so
           - "To:" label (`.period-label`), followed by maximum date (`Month YYYY`, e.g., `July 2026`) formatted with `.period-val` (2rem font size).
 - **Status Feedback**: Visual spinner (`st.spinner`) during processing. If duplicate or invalid, display clear error alert. Upon successful ingestion, display: `"Statement processed successfully!"`.
 
-3. **Database Repository Method Contract**:
-   - `src/app.py` imports `DatabaseRepository` from `src.repository` (or `repository`).
-   - `DatabaseRepository.get_transactions_dataframe(self)` queries normalized transaction records and returns a Pandas DataFrame.
-4. **Normalized Query Strategy**:
-   - Executes queries inside `DatabaseRepository` using normalized entity joins:
-     ```sql
-     SELECT 
-         t.id,
-         t.trans_date, 
-         m.merchant_name AS merchant, 
-         COALESCE(override_cat.category_name, default_cat.category_name) AS category_name, 
-         t.txn_amount, 
-         curr.currency_code AS purchase_currency, 
-         t.hkd_amount, 
-         t.fx_rate,
-         t.category_id
-     FROM "transaction" t
-     JOIN merchant m ON t.merchant_id = m.id
-     LEFT JOIN category default_cat ON m.category_id = default_cat.id
-     LEFT JOIN category override_cat ON t.category_id = override_cat.id
-     LEFT JOIN currency curr ON t.purchase_currency_id = curr.id
-     ORDER BY t.trans_date DESC, t.id DESC
-     ```
-5. **Explicit Page Size Pagination Logic**:
-   - Page size configuration set to `page_size = 5` (or configurable).
-   - Maintain `current_page` in `st.session_state`.
-   - Slice DataFrame: `df.iloc[(page - 1) * page_size : page * page_size]`.
-   - Display pagination control bar below the table with **Previous Page**, **Page X of Y**, and **Next Page** buttons.
-6. **Dataframe Display Columns**: `trans_date`, `merchant`, `category_name`, `txn_amount`, `purchase_currency`, `hkd_amount`, `fx_rate`.
+- **Database Repository Method Contract**:
+  - `src/app.py` imports `DatabaseRepository` from `src.repository` (or `repository`).
+  - `DatabaseRepository.get_transactions_dataframe(self)` queries normalized transaction records and returns a Pandas DataFrame.
+- **Normalized Query Strategy**:
+  - Executes queries inside `DatabaseRepository` using normalized entity joins:
+    ```sql
+    SELECT 
+        t.id,
+        t.trans_date, 
+        m.merchant_name AS merchant, 
+        COALESCE(override_cat.category_name, default_cat.category_name) AS category_name, 
+        t.txn_amount, 
+        curr.currency_code AS purchase_currency, 
+        t.hkd_amount, 
+        t.fx_rate,
+        t.category_id
+    FROM "transaction" t
+    JOIN merchant m ON t.merchant_id = m.id
+    LEFT JOIN category default_cat ON m.category_id = default_cat.id
+    LEFT JOIN category override_cat ON t.category_id = override_cat.id
+    LEFT JOIN currency curr ON t.purchase_currency_id = curr.id
+    ORDER BY t.trans_date DESC, t.id DESC
+    ```
+- **Explicit Page Size Pagination Logic**:
+  - Page size configuration set to `page_size = 5` (or configurable).
+  - Maintain `current_page` in `st.session_state`.
+  - Slice DataFrame: `df.iloc[(page - 1) * page_size : page * page_size]`.
+  - Display pagination control bar below the table with **Previous Page**, **Page X of Y**, and **Next Page** buttons.
+- **Dataframe Display Columns**: `Transaction Date`, `Merchant`, `Category`, `Amount`, `Currency`, `HKD Amount`, `FX Rate`.
 
 ---
 
