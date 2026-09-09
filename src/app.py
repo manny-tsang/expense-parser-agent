@@ -222,7 +222,7 @@ class PersonalExpenseTracker:
                 menu_title=None,
                 options=["Dashboard", "Upload", "Categorise", "Charts", "Search"],
                 icons=["house", "cloud-upload", "tag", "bar-chart", "search"],
-                default_index=1,
+                default_index=4,
                 styles={
                     "container": {
                         "padding": "0!important",
@@ -811,100 +811,40 @@ class PersonalExpenseTracker:
         # Row 1: Search & Filter Card
         with st.container(border=True):
             st.subheader("Filter Transactions")
+            col_in1, col_in2, col_in3 = st.columns(3)
 
-            query = st.text_input(
-                "Search Merchant / Description", key="search_query_input"
-            )
-
-            selected_categories = st.multiselect(
-                "Filter Categories",
-                options=category_list,
-                key="search_category_filter",
-            )
-
-            date_preset = st.radio(
-                "Date Range",
-                options=[
-                    "This Month",
-                    "Last 3 Months",
-                    "Last 6 Months",
-                    "Year to Date",
-                    "All Time",
-                ],
-                index=4,
-                horizontal=True,
-                key="search_date_preset",
-            )
-
-            custom_date = st.date_input(
-                "Custom Date Range",
-                value=(),
-                key="search_custom_date",
-            )
-
-            col_amt1, col_amt2 = st.columns(2)
-            with col_amt1:
-                min_amt_input = st.number_input(
-                    "Min Amount ($)",
-                    value=0.0,
-                    step=10.0,
-                    key="search_min_amt",
+            with col_in1:
+                search_merchant = st.text_input(
+                    "Merchant name", key="search_merchant_input"
                 )
-            with col_amt2:
-                max_amt_input = st.number_input(
-                    "Max Amount ($)",
-                    value=0.0,
-                    step=50.0,
-                    key="search_max_amt",
+
+            with col_in2:
+                search_amount = st.number_input(
+                    "Transaction amount",
+                    value=None,
+                    step=10.0,
+                    key="search_amount_input",
+                )
+
+            with col_in3:
+                search_date = st.date_input(
+                    "Transaction date",
+                    value=None,
+                    key="search_date_input",
                 )
 
         # Filter Parameters Calculation
-        search_query = query.strip() if query and query.strip() else None
-
-        category_ids: Optional[List[int]] = None
-        if selected_categories:
-            category_ids = [
-                cat_name_to_id[c] for c in selected_categories if c in cat_name_to_id
-            ]
-
-        today = pd.Timestamp.today().normalize()
-        start_date_str: Optional[str] = None
-        end_date_str: Optional[str] = None
-
-        if (
-            custom_date
-            and isinstance(custom_date, (list, tuple))
-            and len(custom_date) == 2
-        ):
-            start_date_str = custom_date[0].strftime("%Y-%m-%d")
-            end_date_str = custom_date[1].strftime("%Y-%m-%d")
-        else:
-            if date_preset == "This Month":
-                start_date_str = today.replace(day=1).strftime("%Y-%m-%d")
-                end_date_str = today.strftime("%Y-%m-%d")
-            elif date_preset == "Last 3 Months":
-                start_date_str = (today - pd.DateOffset(months=3)).strftime("%Y-%m-%d")
-                end_date_str = today.strftime("%Y-%m-%d")
-            elif date_preset == "Last 6 Months":
-                start_date_str = (today - pd.DateOffset(months=6)).strftime("%Y-%m-%d")
-                end_date_str = today.strftime("%Y-%m-%d")
-            elif date_preset == "Year to Date":
-                start_date_str = pd.Timestamp(year=today.year, month=1, day=1).strftime("%Y-%m-%d")
-                end_date_str = today.strftime("%Y-%m-%d")
-            elif date_preset == "All Time":
-                start_date_str = None
-                end_date_str = None
-
-        min_amount = float(min_amt_input) if min_amt_input > 0 else None
-        max_amount = float(max_amt_input) if max_amt_input > 0 else None
+        query_param = search_merchant.strip() if search_merchant and search_merchant.strip() else None
+        amount_param = float(search_amount) if search_amount is not None and search_amount > 0 else None
+        date_param = search_date.strftime("%Y-%m-%d") if search_date is not None else None
 
         search_df = self.repo.search_transactions(
-            query=search_query,
-            category_ids=category_ids,
-            start_date=start_date_str,
-            end_date=end_date_str,
-            min_amount=min_amount,
-            max_amount=max_amount,
+            query=query_param,
+            category_ids=None,
+            start_date=date_param,
+            end_date=date_param,
+            min_amount=amount_param,
+            max_amount=amount_param,
         )
 
         st.write("")
@@ -1011,60 +951,86 @@ class PersonalExpenseTracker:
                     f"**Merchant:** {raw_merchant} &nbsp;|&nbsp; **Date:** {raw_date} &nbsp;|&nbsp; **Original Currency:** {raw_currency}"
                 )
 
-                if st.session_state.get("last_remediation_tx_id") != selected_tx_id:
+                if (
+                    "search_remediation_selected_id" not in st.session_state
+                    or st.session_state["search_remediation_selected_id"] != selected_tx_id
+                ):
+                    st.session_state["search_remediation_selected_id"] = selected_tx_id
                     cat_val = str(sel_row.get("category_name") or "Uncategorised")
                     if cat_val not in category_list and category_list:
-                        category_list.append(cat_val)
+                        cat_val = category_list[0]
                     st.session_state["search_edit_cat_select"] = cat_val
-                    st.session_state["search_edit_aud"] = float(sel_row.get("txn_amount") or 0.01)
-                    st.session_state["search_edit_fx"] = float(sel_row.get("fx_rate") or 1.0)
-                    st.session_state["last_remediation_tx_id"] = selected_tx_id
+                    st.session_state["search_edit_aud"] = str(
+                        sel_row.get("txn_amount") if sel_row.get("txn_amount") is not None else ""
+                    )
+                    st.session_state["search_edit_fx"] = str(
+                        sel_row.get("fx_rate") if sel_row.get("fx_rate") is not None else ""
+                    )
 
                 f_col1, f_col2, f_col3 = st.columns(3)
 
                 with f_col1:
                     edit_cat = st.selectbox(
-                        "New Category",
+                        "Category",
                         options=category_list,
                         key="search_edit_cat_select",
                     )
 
                 with f_col2:
-                    edit_aud = st.number_input(
+                    edit_aud = st.text_input(
                         "Transaction amount ($AUD)",
-                        min_value=0.01,
-                        step=0.01,
                         key="search_edit_aud",
                     )
 
                 with f_col3:
-                    edit_fx = st.number_input(
+                    edit_fx = st.text_input(
                         "FX rate",
-                        min_value=0.00001,
-                        step=0.00001,
-                        format="%.5f",
                         key="search_edit_fx",
                     )
 
                 is_valid = True
                 validation_errors: List[str] = []
 
-                if not edit_cat or str(edit_cat).strip() == "" or edit_aud is None or edit_aud <= 0 or edit_fx is None or edit_fx <= 0:
+                edit_cat_str = str(edit_cat).strip() if edit_cat else ""
+                edit_aud_str = str(edit_aud).strip() if edit_aud else ""
+                edit_fx_str = str(edit_fx).strip() if edit_fx else ""
+
+                if not edit_cat_str or edit_aud_str == "" or edit_fx_str == "":
                     is_valid = False
                     validation_errors.append("Update cannot be performed with empty values.")
                 else:
-                    if not re.match(r"^[A-Za-z\s&\-\/]+$", str(edit_cat).strip()):
+                    if not re.match(r"^[A-Za-z\s&\-\/]+$", edit_cat_str):
                         is_valid = False
                         validation_errors.append(
                             "Input must contain ONLY letters, spaces, ampersands (&), hyphens (-), or slashes (/)."
                         )
-                    aud_str = str(edit_aud)
-                    fx_str = str(edit_fx)
-                    if not re.match(r"^[0-9.]+$", aud_str) or not re.match(r"^[0-9.]+$", fx_str):
+
+                    if not re.match(r"^[0-9.]+$", edit_aud_str):
                         is_valid = False
                         validation_errors.append(
                             "Input must contain ONLY numbers and periods ( . )"
                         )
+
+                    if not re.match(r"^[0-9.]+$", edit_fx_str):
+                        is_valid = False
+                        if "Input must contain ONLY numbers and periods ( . )" not in validation_errors:
+                            validation_errors.append(
+                                "Input must contain ONLY numbers and periods ( . )"
+                            )
+
+                    if is_valid:
+                        try:
+                            aud_float = float(edit_aud_str)
+                            fx_float = float(edit_fx_str)
+                            if aud_float <= 0 or fx_float <= 0:
+                                is_valid = False
+                                validation_errors.append("Update cannot be performed with empty values.")
+                        except ValueError:
+                            is_valid = False
+                            if "Input must contain ONLY numbers and periods ( . )" not in validation_errors:
+                                validation_errors.append(
+                                    "Input must contain ONLY numbers and periods ( . )"
+                                )
 
                 for err in validation_errors:
                     st.error(err)
@@ -1077,13 +1043,13 @@ class PersonalExpenseTracker:
                 )
 
                 if update_btn and is_valid:
-                    new_cat_id = cat_name_to_id.get(edit_cat, 1)
+                    new_cat_id = cat_name_to_id.get(edit_cat_str, 1)
                     confirm_update_transaction_dialog(
                         selected_tx_id=selected_tx_id,
                         new_cat_id=new_cat_id,
-                        new_cat_name=edit_cat,
-                        new_aud=float(edit_aud),
-                        new_fx=float(edit_fx),
+                        new_cat_name=edit_cat_str,
+                        new_aud=float(edit_aud_str),
+                        new_fx=float(edit_fx_str),
                     )
 
     def run(self) -> None:
