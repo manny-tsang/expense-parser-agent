@@ -3,6 +3,12 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# Operating System files
+.DS_Store
+*.DS_Store
+**/.DS_Store
+Thumbs.db
+
 # C extensions
 *.so
 
@@ -222,6 +228,9 @@ data/*
 !data/*.csv
 !data/.gitkeep
 
-# Ignore local SQLite database files
+# Ignore local SQLite database files and transient journals
 db/*.db
 !db/.gitkeep
+*.db-journal
+*.db-wal
+*.db-shm
