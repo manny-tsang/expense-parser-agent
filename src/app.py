@@ -190,8 +190,8 @@ class PersonalExpenseTracker:
         with st.sidebar:
             selected = option_menu(
                 menu_title=None,
-                options=["Dashboard", "Upload", "Categorise", "Charts"],
-                icons=["house", "cloud-upload", "tag", "bar-chart"],
+                options=["Dashboard", "Upload", "Categorise", "Charts", "Search"],
+                icons=["house", "cloud-upload", "tag", "bar-chart", "search"],
                 default_index=1,
                 styles={
                     "container": {
@@ -307,7 +307,11 @@ class PersonalExpenseTracker:
         }
 
         display_cols = [c for c in col_mapping.keys() if c in df.columns]
-        display_df = df[display_cols].rename(columns=col_mapping) if not df.empty else pd.DataFrame(columns=list(col_mapping.values()))
+        display_df = (
+            df[display_cols].rename(columns=col_mapping)
+            if not df.empty
+            else pd.DataFrame(columns=list(col_mapping.values()))
+        )
 
         total_rows = len(display_df)
         page_size = 10
@@ -360,7 +364,6 @@ class PersonalExpenseTracker:
         uncat_df = self.repo.get_uncategorised_merchants()
         categories_df = self.repo.get_categories()
         merchants_df = self.repo.get_merchants()
-        tx_df = self.repo.get_transactions_dataframe()
 
         category_list: List[str] = []
         cat_name_to_id: Dict[str, int] = {}
@@ -385,38 +388,11 @@ class PersonalExpenseTracker:
                 zip(merchants_df["merchant_name"], merchants_df["merchant_id"])
             )
 
-        tx_ids: List[Optional[int]] = [None]
-        tx_display_map: Dict[Optional[int], str] = {None: "Select a transaction"}
-        tx_cat_map: Dict[Optional[int], str] = {None: ""}
+        # Row 1 (2 Equal Columns)
+        row1_col1, row1_col2 = st.columns(2)
 
-        if not tx_df.empty and "id" in tx_df.columns:
-            for _, row in tx_df.iterrows():
-                tx_id = row["id"]
-                if pd.notna(tx_id):
-                    tx_id_int = int(tx_id)
-                    tx_ids.append(tx_id_int)
-
-                    trans_date = str(row.get("trans_date", ""))
-                    merchant_name = str(row.get("merchant", ""))
-                    curr = str(row.get("purchase_currency") or "HKD")
-                    amt = row.get("txn_amount", 0.0)
-                    try:
-                        amt_str = f"{float(amt):.2f}"
-                    except (ValueError, TypeError):
-                        amt_str = str(amt)
-
-                    tx_display_map[
-                        tx_id_int
-                    ] = f"{trans_date} | {merchant_name} | {curr} {amt_str}"
-
-                    cat_val = row.get("category_name")
-                    tx_cat_map[tx_id_int] = (
-                        str(cat_val) if pd.notna(cat_val) and cat_val else ""
-                    )
-
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
+        # Section 1: Add new category
+        with row1_col1:
             with st.container(border=True, height="stretch"):
                 st.subheader("Add new category")
                 st.markdown(
@@ -445,7 +421,8 @@ class PersonalExpenseTracker:
                     else:
                         confirm_add_category_dialog(trimmed_cat)
 
-        with col2:
+        # Section 2: Merchant mapping
+        with row1_col2:
             with st.container(border=True, height="stretch"):
                 st.subheader("Merchant mapping")
                 st.markdown(
@@ -458,8 +435,10 @@ class PersonalExpenseTracker:
                     key="global_merchant_select",
                 )
 
-                current_merchant_cat = merchant_cat_map.get(
-                    selected_merchant if selected_merchant != "Select a merchant" else "", ""
+                current_merchant_cat = (
+                    merchant_cat_map.get(selected_merchant, "")
+                    if selected_merchant != "Select a merchant"
+                    else ""
                 )
 
                 subcol1, subcol2 = st.columns(2)
@@ -508,68 +487,9 @@ class PersonalExpenseTracker:
                             new_cat_id,
                         )
 
-        with col3:
-            with st.container(border=True, height="stretch"):
-                st.subheader("Update transaction category")
-                st.markdown(
-                    "Update the category for a single transaction where the default category is not suitable. Example: 'BP' transaction not for 'Fuel'."
-                )
+        st.write("")
 
-                selected_tx_id = st.selectbox(
-                    "Transaction",
-                    options=tx_ids,
-                    format_func=lambda tx_id: tx_display_map.get(
-                        tx_id, "Select a transaction"
-                    ),
-                    key="selected_tx_dropdown",
-                )
-
-                current_tx_cat = tx_cat_map.get(selected_tx_id, "")
-
-                subcol1, subcol2 = st.columns(2)
-
-                with subcol1:
-                    st.text_input(
-                        "Current category",
-                        value=current_tx_cat,
-                        disabled=True,
-                        key=f"current_cat_display_{selected_tx_id}",
-                    )
-
-                with subcol2:
-                    selected_new_cat = st.selectbox(
-                        "New category",
-                        options=["Select a category"] + category_list,
-                        key="tx_cat_select",
-                    )
-
-                update_tx_btn = st.button(
-                    "Update transaction category",
-                    type="primary",
-                    key="update_tx_category",
-                )
-
-                if update_tx_btn:
-                    if (
-                        selected_tx_id is None
-                        or selected_new_cat == "Select a category"
-                    ):
-                        st.error(
-                            "Please select both a transaction and a new category before updating."
-                        )
-                    elif selected_new_cat == current_tx_cat:
-                        st.error(
-                            "'Current category' and 'New category' must not be the same."
-                        )
-                    else:
-                        new_c_id = cat_name_to_id.get(selected_new_cat, 1)
-                        confirm_tx_category_dialog(
-                            current_tx_cat,
-                            selected_new_cat,
-                            int(selected_tx_id),
-                            new_c_id,
-                        )
-
+        # Row 2 (Full Width): Uncategorised merchants
         st.subheader("Uncategorised merchants")
         st.markdown(
             "List of merchants currently assigned to 'Uncategorised' requiring mapping."
@@ -735,7 +655,7 @@ class PersonalExpenseTracker:
 
         with col1:
             with st.container(border=True, height="stretch"):
-                st.subheader("Expense Category Breakdown")
+                st.subheader("Expense category breakdown")
                 if filtered_df.empty:
                     st.info("No transactions found for the selected filter criteria.")
                 else:
@@ -795,7 +715,7 @@ class PersonalExpenseTracker:
 
         st.write("")
         with st.container(border=True):
-            st.subheader("Expense Category Statistics")
+            st.subheader("Expense category statistics")
             st.markdown(
                 "Monthly averages calculated across the selected date range for direct import into budget spreadsheets."
             )
@@ -852,6 +772,30 @@ class PersonalExpenseTracker:
                 stats_df = pd.DataFrame(table_rows)
                 st.dataframe(stats_df, use_container_width=True, hide_index=True)
 
+    def render_search_page(self) -> None:
+        st.subheader("Search Transactions")
+        st.markdown("Search and filter transactions across all historical statements.")
+        query = st.text_input("Search merchant name", key="search_query_input")
+        df = self.repo.search_transactions(query=query if query else None)
+        if not df.empty:
+            col_mapping = {
+                "trans_date": "Transaction Date",
+                "merchant_name": "Merchant",
+                "category_name": "Category",
+                "txn_amount": "Amount",
+                "purchase_currency": "Currency",
+                "hkd_amount": "HKD Amount",
+                "fx_rate": "FX Rate",
+            }
+            display_cols = [c for c in col_mapping.keys() if c in df.columns]
+            st.dataframe(
+                df[display_cols].rename(columns=col_mapping),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.info("No matching transactions found.")
+
     def run(self) -> None:
         st.set_page_config(
             page_title="Personal Expense Tracker",
@@ -872,6 +816,8 @@ class PersonalExpenseTracker:
             )
         elif selected == "Charts":
             self.render_charts_page()
+        elif selected == "Search":
+            self.render_search_page()
 
 
 if __name__ == "__main__":
