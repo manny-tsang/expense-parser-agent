@@ -84,6 +84,36 @@ def confirm_tx_category_dialog(
             st.rerun()
 
 
+@st.dialog("Confirm transaction update", width="small")
+def confirm_update_transaction_dialog(
+    selected_tx_id: int,
+    new_cat_id: int,
+    new_cat_name: str,
+    new_aud: float,
+    new_fx: float,
+) -> None:
+    st.write("Please confirm that you wish to update this transaction with the following details:")
+    st.write(f"- **Category:** {new_cat_name}")
+    st.write(f"- **Amount ($AUD):** ${new_aud:,.2f}")
+    st.write(f"- **FX rate:** {new_fx:.5f}")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Cancel", use_container_width=True, key="dialog_cancel_search_update"):
+            st.rerun()
+    with col2:
+        if st.button(
+            "Update", type="primary", use_container_width=True, key="dialog_confirm_search_update"
+        ):
+            repo = DatabaseRepository(DB_PATH)
+            repo.update_transaction_details(
+                transaction_id=selected_tx_id,
+                category_id=new_cat_id,
+                txn_amount=new_aud,
+                fx_rate=new_fx,
+            )
+            st.rerun()
+
+
 class PersonalExpenseTracker:
     def __init__(self) -> None:
         self.repo = DatabaseRepository(DB_PATH)
@@ -388,10 +418,8 @@ class PersonalExpenseTracker:
                 zip(merchants_df["merchant_name"], merchants_df["merchant_id"])
             )
 
-        # Row 1 (2 Equal Columns)
         row1_col1, row1_col2 = st.columns(2)
 
-        # Section 1: Add new category
         with row1_col1:
             with st.container(border=True, height="stretch"):
                 st.subheader("Add new category")
@@ -421,7 +449,6 @@ class PersonalExpenseTracker:
                     else:
                         confirm_add_category_dialog(trimmed_cat)
 
-        # Section 2: Merchant mapping
         with row1_col2:
             with st.container(border=True, height="stretch"):
                 st.subheader("Merchant mapping")
@@ -489,7 +516,6 @@ class PersonalExpenseTracker:
 
         st.write("")
 
-        # Row 2 (Full Width): Uncategorised merchants
         st.subheader("Uncategorised merchants")
         st.markdown(
             "List of merchants currently assigned to 'Uncategorised' requiring mapping."
@@ -773,28 +799,292 @@ class PersonalExpenseTracker:
                 st.dataframe(stats_df, use_container_width=True, hide_index=True)
 
     def render_search_page(self) -> None:
-        st.subheader("Search Transactions")
-        st.markdown("Search and filter transactions across all historical statements.")
-        query = st.text_input("Search merchant name", key="search_query_input")
-        df = self.repo.search_transactions(query=query if query else None)
-        if not df.empty:
-            col_mapping = {
-                "trans_date": "Transaction Date",
-                "merchant_name": "Merchant",
-                "category_name": "Category",
-                "txn_amount": "Amount",
-                "purchase_currency": "Currency",
-                "hkd_amount": "HKD Amount",
-                "fx_rate": "FX Rate",
-            }
-            display_cols = [c for c in col_mapping.keys() if c in df.columns]
-            st.dataframe(
-                df[display_cols].rename(columns=col_mapping),
-                use_container_width=True,
-                hide_index=True,
+        categories_df = self.repo.get_categories()
+        category_list: List[str] = []
+        cat_name_to_id: Dict[str, int] = {}
+        if not categories_df.empty and "category_name" in categories_df.columns:
+            category_list = categories_df["category_name"].dropna().tolist()
+            cat_name_to_id = dict(
+                zip(categories_df["category_name"], categories_df["id"])
             )
+
+        # Row 1: Search & Filter Card
+        with st.container(border=True):
+            st.subheader("Filter Transactions")
+
+            query = st.text_input(
+                "Search Merchant / Description", key="search_query_input"
+            )
+
+            selected_categories = st.multiselect(
+                "Filter Categories",
+                options=category_list,
+                key="search_category_filter",
+            )
+
+            date_preset = st.radio(
+                "Date Range",
+                options=[
+                    "This Month",
+                    "Last 3 Months",
+                    "Last 6 Months",
+                    "Year to Date",
+                    "All Time",
+                ],
+                index=4,
+                horizontal=True,
+                key="search_date_preset",
+            )
+
+            custom_date = st.date_input(
+                "Custom Date Range",
+                value=(),
+                key="search_custom_date",
+            )
+
+            col_amt1, col_amt2 = st.columns(2)
+            with col_amt1:
+                min_amt_input = st.number_input(
+                    "Min Amount ($)",
+                    value=0.0,
+                    step=10.0,
+                    key="search_min_amt",
+                )
+            with col_amt2:
+                max_amt_input = st.number_input(
+                    "Max Amount ($)",
+                    value=0.0,
+                    step=50.0,
+                    key="search_max_amt",
+                )
+
+        # Filter Parameters Calculation
+        search_query = query.strip() if query and query.strip() else None
+
+        category_ids: Optional[List[int]] = None
+        if selected_categories:
+            category_ids = [
+                cat_name_to_id[c] for c in selected_categories if c in cat_name_to_id
+            ]
+
+        today = pd.Timestamp.today().normalize()
+        start_date_str: Optional[str] = None
+        end_date_str: Optional[str] = None
+
+        if (
+            custom_date
+            and isinstance(custom_date, (list, tuple))
+            and len(custom_date) == 2
+        ):
+            start_date_str = custom_date[0].strftime("%Y-%m-%d")
+            end_date_str = custom_date[1].strftime("%Y-%m-%d")
         else:
-            st.info("No matching transactions found.")
+            if date_preset == "This Month":
+                start_date_str = today.replace(day=1).strftime("%Y-%m-%d")
+                end_date_str = today.strftime("%Y-%m-%d")
+            elif date_preset == "Last 3 Months":
+                start_date_str = (today - pd.DateOffset(months=3)).strftime("%Y-%m-%d")
+                end_date_str = today.strftime("%Y-%m-%d")
+            elif date_preset == "Last 6 Months":
+                start_date_str = (today - pd.DateOffset(months=6)).strftime("%Y-%m-%d")
+                end_date_str = today.strftime("%Y-%m-%d")
+            elif date_preset == "Year to Date":
+                start_date_str = pd.Timestamp(year=today.year, month=1, day=1).strftime("%Y-%m-%d")
+                end_date_str = today.strftime("%Y-%m-%d")
+            elif date_preset == "All Time":
+                start_date_str = None
+                end_date_str = None
+
+        min_amount = float(min_amt_input) if min_amt_input > 0 else None
+        max_amount = float(max_amt_input) if max_amt_input > 0 else None
+
+        search_df = self.repo.search_transactions(
+            query=search_query,
+            category_ids=category_ids,
+            start_date=start_date_str,
+            end_date=end_date_str,
+            min_amount=min_amount,
+            max_amount=max_amount,
+        )
+
+        st.write("")
+
+        # Row 2: Search Results Table (Full Width)
+        if search_df.empty:
+            st.info("No matching records were found.")
+        else:
+            col_mapping = {
+                "trans_date": "Transaction date",
+                "merchant_name": "Merchant name",
+                "category_name": "Category",
+                "txn_amount": "Transaction amount",
+                "hkd_amount": "HKD amount",
+                "fx_rate": "FX rate",
+            }
+
+            display_cols = [c for c in col_mapping.keys() if c in search_df.columns]
+            display_df = search_df[display_cols].rename(columns=col_mapping)
+
+            page_size = 10
+            total_rows = len(display_df)
+            total_pages = max(1, math.ceil(total_rows / page_size))
+
+            if "search_current_page" not in st.session_state:
+                st.session_state["search_current_page"] = 1
+
+            if st.session_state["search_current_page"] > total_pages:
+                st.session_state["search_current_page"] = total_pages
+            if st.session_state["search_current_page"] < 1:
+                st.session_state["search_current_page"] = 1
+
+            current_page = st.session_state["search_current_page"]
+            start_idx = (current_page - 1) * page_size
+            end_idx = start_idx + page_size
+
+            page_df = display_df.iloc[start_idx:end_idx]
+            st.dataframe(page_df, use_container_width=True, hide_index=True)
+
+            ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([1, 2, 1])
+
+            with ctrl_col1:
+                if st.button(
+                    "Previous Page",
+                    disabled=(current_page <= 1),
+                    key="search_prev_page",
+                    use_container_width=True,
+                ):
+                    st.session_state["search_current_page"] -= 1
+                    st.rerun()
+
+            with ctrl_col2:
+                st.markdown(
+                    f"<div style='text-align: center; padding-top: 0.5rem; color: #FAFAFA;'>Page {current_page} of {total_pages}</div>",
+                    unsafe_allow_html=True,
+                )
+
+            with ctrl_col3:
+                if st.button(
+                    "Next Page",
+                    disabled=(current_page >= total_pages),
+                    key="search_next_page",
+                    use_container_width=True,
+                ):
+                    st.session_state["search_current_page"] += 1
+                    st.rerun()
+
+        st.write("")
+
+        # Row 3: Transaction Remediation Card
+        with st.container(border=True):
+            st.subheader("Edit Selected Transaction")
+            st.markdown(
+                "Select a transaction from the search results above to remediate its category, amounts, or exchange rate."
+            )
+
+            if search_df.empty:
+                st.info("No transaction available to select.")
+            else:
+                matching_tx_ids = search_df["id"].tolist()
+                tx_info_map = {row["id"]: row for _, row in search_df.iterrows()}
+
+                def format_tx_option(tx_id: int) -> str:
+                    row = tx_info_map.get(tx_id, {})
+                    m_name = row.get("merchant_name", "Unknown")
+                    t_date = row.get("trans_date", "N/A")
+                    amt = float(row.get("txn_amount") or 0.0)
+                    return f"ID {tx_id} | {t_date} | {m_name} (${amt:,.2f})"
+
+                selected_tx_id = st.selectbox(
+                    "Select Transaction",
+                    options=matching_tx_ids,
+                    format_func=format_tx_option,
+                    key="search_edit_tx_select",
+                )
+
+                sel_row = tx_info_map[selected_tx_id]
+
+                raw_merchant = sel_row.get("merchant_name", "")
+                raw_date = sel_row.get("trans_date", "")
+                raw_currency = sel_row.get("purchase_currency") or "AUD"
+
+                st.markdown(
+                    f"**Merchant:** {raw_merchant} &nbsp;|&nbsp; **Date:** {raw_date} &nbsp;|&nbsp; **Original Currency:** {raw_currency}"
+                )
+
+                if st.session_state.get("last_remediation_tx_id") != selected_tx_id:
+                    cat_val = str(sel_row.get("category_name") or "Uncategorised")
+                    if cat_val not in category_list and category_list:
+                        category_list.append(cat_val)
+                    st.session_state["search_edit_cat_select"] = cat_val
+                    st.session_state["search_edit_aud"] = float(sel_row.get("txn_amount") or 0.01)
+                    st.session_state["search_edit_fx"] = float(sel_row.get("fx_rate") or 1.0)
+                    st.session_state["last_remediation_tx_id"] = selected_tx_id
+
+                f_col1, f_col2, f_col3 = st.columns(3)
+
+                with f_col1:
+                    edit_cat = st.selectbox(
+                        "New Category",
+                        options=category_list,
+                        key="search_edit_cat_select",
+                    )
+
+                with f_col2:
+                    edit_aud = st.number_input(
+                        "Transaction amount ($AUD)",
+                        min_value=0.01,
+                        step=0.01,
+                        key="search_edit_aud",
+                    )
+
+                with f_col3:
+                    edit_fx = st.number_input(
+                        "FX rate",
+                        min_value=0.00001,
+                        step=0.00001,
+                        format="%.5f",
+                        key="search_edit_fx",
+                    )
+
+                is_valid = True
+                validation_errors: List[str] = []
+
+                if not edit_cat or str(edit_cat).strip() == "" or edit_aud is None or edit_aud <= 0 or edit_fx is None or edit_fx <= 0:
+                    is_valid = False
+                    validation_errors.append("Update cannot be performed with empty values.")
+                else:
+                    if not re.match(r"^[A-Za-z\s&\-\/]+$", str(edit_cat).strip()):
+                        is_valid = False
+                        validation_errors.append(
+                            "Input must contain ONLY letters, spaces, ampersands (&), hyphens (-), or slashes (/)."
+                        )
+                    aud_str = str(edit_aud)
+                    fx_str = str(edit_fx)
+                    if not re.match(r"^[0-9.]+$", aud_str) or not re.match(r"^[0-9.]+$", fx_str):
+                        is_valid = False
+                        validation_errors.append(
+                            "Input must contain ONLY numbers and periods ( . )"
+                        )
+
+                for err in validation_errors:
+                    st.error(err)
+
+                update_btn = st.button(
+                    "Update transaction",
+                    type="primary",
+                    disabled=not is_valid,
+                    key="search_update_tx_btn",
+                )
+
+                if update_btn and is_valid:
+                    new_cat_id = cat_name_to_id.get(edit_cat, 1)
+                    confirm_update_transaction_dialog(
+                        selected_tx_id=selected_tx_id,
+                        new_cat_id=new_cat_id,
+                        new_cat_name=edit_cat,
+                        new_aud=float(edit_aud),
+                        new_fx=float(edit_fx),
+                    )
 
     def run(self) -> None:
         st.set_page_config(
