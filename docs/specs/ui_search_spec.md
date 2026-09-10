@@ -35,11 +35,17 @@ SO THAT I can audit spending anomalies, resolve foreign currency inaccuracies, a
 #### Row 2: Search Results Table (Full Width, 5 Rows Per Page)
 - Full-width DataFrame displaying filtered transaction hits sliced at **5 rows per page** with Previous/Next page controls.
 - Columns: `Transaction date`, `Merchant name`, `Category`, `Transaction amount`, `HKD amount`, `FX rate`.
-- **Missing Value Representation**: Null or missing values (e.g. FX rate for DCC fees) MUST be consistently rendered as `"None"` across all table cells and detail fields (never `NaN` or `NoneType`).
-- **Row Selection Event (`on_select="rerun"`, `selection_mode="single-row"`)**:
-  - Clicking any row in the table automatically selects that record and populates Row 3 with its full details.
-  - By default (or on search query rerun), Row 0 of the active page is auto-selected.
-- **Empty State**: Displays clear info message (`st.info("No matching records were found.")`) when no transactions match the active criteria.
+- **Missing Value Representation**: Null or missing values MUST be consistently rendered as `"None"` across all table cells and detail fields.
+- **Row Selection Event & Styling (`on_select="rerun"`, `selection_mode="single-row"`)**:
+  - Direct click-to-select behavior MUST be enforced on the dataframe.
+  - To ensure a clean row-click UX without rendering a visual checkbox column, CSS styling MUST be injected into `inject_css()` (or equivalent container rules) to target and hide dataframe selection column headers and checkboxes:
+    ```css
+    [data-testid="stDataFrame"] div[role="columnheader"]:first-child,
+    [data-testid="stDataFrame"] div[role="gridcell"]:first-child {
+        display: none !important;
+    }
+    ```
+  - By default (or on search query rerun), Row 0 of the active page is auto-selected to pre-populate Row 3 immediately.
 
 #### Row 3: Edit Transaction Card (`st.container(border=True)`)
 - `st.subheader("Edit transaction")`
