@@ -2,8 +2,8 @@
 
 ## 1. Objective
 AS A Personal Tracker User  
-I WANT TO search and filter historical transactions in a results table and remediate line-item details in an action card directly below the table  
-SO THAT I can audit spending anomalies, resolve foreign currency inaccuracies, and adjust line-item categories in a natural, top-to-bottom accessible workflow.
+I WANT TO search historical transactions, select a record directly from the results table, and review/remediate its details in a split action card below  
+SO THAT I can audit spending anomalies, resolve foreign currency inaccuracies, and adjust line-item categories in a seamless, top-to-bottom master-detail workflow.
 
 ## 2. Technical Stack & Dependencies
 - **Language**: Python 3.x
@@ -19,39 +19,60 @@ SO THAT I can audit spending anomalies, resolve foreign currency inaccuracies, a
 - Navigation menu options: `["Dashboard", "Upload", "Categorise", "Charts", "Search"]`
 - Icons: `["house", "cloud-upload", "tag", "bar-chart", "search"]`
 
-### 3.2 Three-Row Accessible Sequential Layout
+### 3.2 Page Header & Descriptor Text
+- **Header Title**: `Search`
+- **Page Descriptor Text**: `st.markdown("Search historical transactions across merchant, amount, or date, and select any record from the results table to view its full details and perform category or FX rate overrides.")`
 
-#### Row 1: Search & Filter Card (`st.container(border=True)`)
-- `st.subheader("Filter Transactions")`
+### 3.3 Three-Row Master-Detail Layout
+
+#### Row 1: Search Criteria Card (`st.container(border=True)`)
+- `st.subheader("Search criteria")`
 - **Input Controls (`st.columns(3)`)**:
   - **Merchant Search**: `st.text_input("Merchant name", key="search_merchant_input")` (Supports partial or full merchant name matching).
   - **Transaction Amount**: `st.number_input("Transaction amount", value=None, step=10.0, key="search_amount_input")` (Filters for specific transaction amount matching).
   - **Transaction Date**: `st.date_input("Transaction date", value=None, key="search_date_input")` (Filters by specific transaction date).
 
-#### Row 2: Search Results Table (Full Width)
-- Full-width DataFrame displaying filtered transaction hits sliced at 10 rows per page with Previous/Next page controls.
+#### Row 2: Search Results Table (Full Width, 5 Rows Per Page)
+- Full-width DataFrame displaying filtered transaction hits sliced at **5 rows per page** with Previous/Next page controls.
 - Columns: `Transaction date`, `Merchant name`, `Category`, `Transaction amount`, `HKD amount`, `FX rate`.
+- **Native Table Selection Event (`on_select="rerun"`, `selection_mode="single-row"`)**:
+  - Clicking any row in the table automatically selects that record and populates Row 3 with its full details.
+  - By default (or on search query rerun), Row 1 of the active page is auto-selected.
 - **Empty State**: Displays clear info message (`st.info("No matching records were found.")`) when no transactions match the active criteria.
 
-#### Row 3: Transaction Remediation Card (`st.container(border=True)`)
-- `st.subheader("Edit Selected Transaction")`
-- `st.markdown("Select a transaction from the search results above to remediate its category, amounts, or exchange rate.")`
-- Selectbox: `st.selectbox("Select Transaction", options=matching_tx_ids, format_func=..., key="search_edit_tx_select")`
-- Readout: Read-only summary showing raw merchant description, date, and original currency.
-- Form Inputs (`st.columns(3)`):
-  - `st.selectbox("Category", options=category_list, key="search_edit_cat_select")`
-  - `st.text_input("Transaction amount ($AUD)", key="search_edit_aud")`
-  - `st.text_input("FX rate", key="search_edit_fx")`
-- Field Validation Rules:
-  - Empty fields strictly block updates and display inline error message: `"Update cannot be performed with empty values."`
-  - Category field input MUST contain ONLY letters, spaces, ampersands (&), hyphens (-), or slashes (/). Otherwise display: `"Input must contain ONLY letters, spaces, ampersands (&), hyphens (-), or slashes (/)."`.
-  - Transaction amount ($AUD) and FX rate inputs MUST contain ONLY numbers and periods (.). Otherwise display: `"Input must contain ONLY numbers and periods ( . )"`.
-  - Disable the **Update transaction** action button whenever validation rules are violated.
-- Action Button: `st.button("Update transaction", type="primary")` triggering `@st.dialog("Confirm transaction update")`.
+#### Row 3: Edit Transaction Card (`st.container(border=True)`)
+- `st.subheader("Edit transaction")`
+- **Split Layout (`st.columns(2)`)**:
 
-### 3.3 Dialog Confirmation Modal (`@st.dialog`)
+  - **Column 1 (Transaction details - Uneditable Readout)**:
+    - Subheader / Label: `**Transaction details**`
+    - Read-only disabled text displays showing selected line-item properties:
+      - `Transaction date`: Read-only value from selected row.
+      - `Merchant`: Read-only value from selected row.
+      - `Transaction amount`: Read-only value formatted in AUD.
+      - `HKD amount`: Read-only value formatted in HKD.
+      - `FX rate`: Read-only FX rate value.
+
+  - **Column 2 (Update transaction - Form Inputs & Validation)**:
+    - Subheader / Label: `**Update transaction**`
+    - **Category Dropdown**: `st.selectbox("Category", options=["Select a new category"] + category_list, key="search_edit_cat_select")`
+    - **Transaction Amount Input**: `st.text_input("Transaction amount ($AUD)", placeholder="Enter $AUD amount", key="search_edit_aud")`
+    - **FX Rate Input**: `st.text_input("FX rate", placeholder="Enter exchange rate", key="search_edit_fx")`
+    
+    - **Button Enablement Matrix & Validation Rules**:
+      - The **Update transaction** button (`type="primary"`) MUST remain **disabled** by default until one of these valid update states is achieved:
+        1. **Category Only**: `Category` != `"Select a new category"` AND (`Amount` is empty AND `FX rate` is empty).
+        2. **Amount + FX Pair Only**: `Category` == `"Select a new category"` AND (`Amount` is valid non-empty numeric AND `FX rate` is valid non-empty numeric).
+        3. **Category + Amount + FX Pair**: `Category` != `"Select a new category"` AND (`Amount` is valid non-empty numeric AND `FX rate` is valid non-empty numeric).
+      
+      - **In-Line Validation Warnings (`st.error`)**:
+        - If only one of `Transaction amount ($AUD)` or `FX rate` is entered (partial pair): Display `st.error("Transaction amount ($AUD) and FX rate must be updated together.")`.
+        - If Category input contains invalid characters: Display `st.error("Input must contain ONLY letters, spaces, ampersands (&), hyphens (-), or slashes (/).")`.
+        - If Amount or FX rate contain non-numeric characters: Display `st.error("Input must contain ONLY numbers and periods ( . )")`.
+
+### 3.4 Dialog Confirmation Modal (`@st.dialog`)
 - Title: `"Confirm transaction update"`
-- Description: Displays a concise summary asking to confirm updating the transaction with the values entered.
+- Description: Displays a concise summary asking to confirm updating the selected transaction with the new category, $AUD amount, or FX rate entered.
 - Buttons:
   - **Cancel**: Closes the modal dialog and returns the user to the "Search" screen without applying changes.
   - **Update**: Executes `DatabaseRepository.update_transaction_details()`, persists updates in SQLite, and refreshes the view.
@@ -97,7 +118,7 @@ Examples:
 Scenario 2: Result output
 GIVEN I have entered search criteria
 WHEN there are transactions that match the search criteria
-THEN DatabaseRepository.search_transactions() returns matching records displayed in a 10-row paginated table with the columns of “Transaction date”
+THEN DatabaseRepository.search_transactions() returns matching records displayed in a 5-row paginated table with the columns of “Transaction date”
 AND “Merchant name”
 AND “Category”
 AND “Transaction amount”
@@ -118,15 +139,15 @@ THEN the table displays a clear info message indicating no matching records were
 
 **Description**:
 AS A Personal Tracker User  
-I WANT TO select a transaction from the search results  
-SO THAT I can modify its category, transaction amount, or FX rate to ensure they represent expenses in AUD to better aid budget planning.
+I WANT TO select a transaction directly from the search results table  
+SO THAT I can view its full details and modify its category, transaction amount, or FX rate to ensure they represent expenses in AUD to better aid budget planning.
 
 Acceptance Criteria:
 
-Scenario Outline 1: Update selected transaction's transaction amount and FX rate  
-GIVEN transactions are returned based on the provided search criteria  
-WHEN I select a transaction  
-THEN that transaction is populated into the "Update transaction" card with the ability to update the <field>
+Scenario Outline 1: Master-detail row selection and update
+GIVEN transactions are returned in the search results table  
+WHEN I click a row in the table  
+THEN its uneditable details populate in the "Transaction details" column AND its editable fields populate in the "Update transaction" column for <field>
 
 Examples:
 | field |
@@ -134,22 +155,22 @@ Examples:
 | Transaction amount ($AUD) |
 | FX rate |
 
-Scenario Outline 2: Input Field & Non-Empty Validation  
-GIVEN I have selected a transaction to amend
-WHEN I enter <condition> into <field> field
-THEN an in-line message states <message>
-AND disables the "Update transaction" button until valid, non-empty positive numeric values are provided.
+Scenario Outline 2: Input Field & Pair Validation  
+GIVEN I am updating a transaction record  
+WHEN I enter <condition> into <field> field  
+THEN an in-line message states <message>  
+AND disables the "Update transaction" button until valid inputs are provided.
 
 Examples:
 | conditon | field | outcome |
-| no characters | any | “Update cannot be performed with empty values.” |
+| partial pair entry | Transaction amount ($AUD) OR FX rate | “Transaction amount ($AUD) and FX rate must be updated together.” |
 | invalid characters | Category | “Input must contain ONLY letters, spaces, ampersands (&), hyphens (-), or slashes (/).” |
 | non-numeric characters | Transaction amount ($AUD) | “Input must contain ONLY numbers and periods ( . )” |
 | non-numeric characters | FX rate | “Input must contain ONLY numbers and periods ( . )” |
 
 Scenario 3: Present confirmation modal dialog  
-GIVEN I have entered a valid values to update the transaction with
+GIVEN I have provided valid update values  
 WHEN I click "Update transaction"  
-THEN the confirmation modal dialog is presented asking me to confirm that I wish to update the transaction with the values entered
+THEN the confirmation modal dialog is presented asking me to confirm that I wish to update the transaction  
 AND provides an "Update" button which confirms the change and executes DatabaseRepository.update_transaction_details()  
 AND provides a "Cancel" button which returns me to the "Search" screen without applying changes.
