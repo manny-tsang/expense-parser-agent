@@ -35,26 +35,28 @@ SO THAT I can audit spending anomalies, resolve foreign currency inaccuracies, a
 #### Row 2: Search Results Table (Full Width, 5 Rows Per Page)
 - Full-width DataFrame displaying filtered transaction hits sliced at **5 rows per page** with Previous/Next page controls.
 - Columns: `Transaction date`, `Merchant name`, `Category`, `Transaction amount`, `HKD amount`, `FX rate`.
-- **Native Table Selection Event (`on_select="rerun"`, `selection_mode="single-row"`)**:
+- **Missing Value Representation**: Null or missing values (e.g. FX rate for DCC fees) MUST be consistently rendered as `"None"` across all table cells and detail fields (never `NaN` or `NoneType`).
+- **Row Selection Event (`on_select="rerun"`, `selection_mode="single-row"`)**:
   - Clicking any row in the table automatically selects that record and populates Row 3 with its full details.
-  - By default (or on search query rerun), Row 1 of the active page is auto-selected.
+  - By default (or on search query rerun), Row 0 of the active page is auto-selected.
 - **Empty State**: Displays clear info message (`st.info("No matching records were found.")`) when no transactions match the active criteria.
 
 #### Row 3: Edit Transaction Card (`st.container(border=True)`)
 - `st.subheader("Edit transaction")`
-- **Split Layout (`st.columns(2)`)**:
+- **Split Bordered Columns (`st.columns(2)`)**:
+  - Both sub-columns MUST be wrapped in `st.container(border=True)` to create distinct, bordered card containers.
 
-  - **Column 1 (Transaction details - Uneditable Readout)**:
-    - Subheader / Label: `**Transaction details**`
+  - **Column 1 Container (`st.container(border=True)`) - Transaction details**:
+    - Section Heading: `st.subheader("Transaction details")`
     - Read-only disabled text displays showing selected line-item properties:
       - `Transaction date`: Read-only value from selected row.
       - `Merchant`: Read-only value from selected row.
       - `Transaction amount`: Read-only value formatted in AUD.
-      - `HKD amount`: Read-only value formatted in HKD.
-      - `FX rate`: Read-only FX rate value.
+      - `HKD amount`: Read-only value formatted in HKD (or `"None"` if null).
+      - `FX rate`: Read-only FX rate value (or `"None"` if null, strictly avoiding `NaN`).
 
-  - **Column 2 (Update transaction - Form Inputs & Validation)**:
-    - Subheader / Label: `**Update transaction**`
+  - **Column 2 Container (`st.container(border=True)`) - Update transaction**:
+    - Section Heading: `st.subheader("Update transaction")`
     - **Category Dropdown**: `st.selectbox("Category", options=["Select a new category"] + category_list, key="search_edit_cat_select")`
     - **Transaction Amount Input**: `st.text_input("Transaction amount ($AUD)", placeholder="Enter $AUD amount", key="search_edit_aud")`
     - **FX Rate Input**: `st.text_input("FX rate", placeholder="Enter exchange rate", key="search_edit_fx")`
@@ -147,7 +149,7 @@ Acceptance Criteria:
 Scenario Outline 1: Master-detail row selection and update
 GIVEN transactions are returned in the search results table  
 WHEN I click a row in the table  
-THEN its uneditable details populate in the "Transaction details" column AND its editable fields populate in the "Update transaction" column for <field>
+THEN its uneditable details populate in the "Transaction details" bordered container AND its editable fields populate in the "Update transaction" bordered container for <field>
 
 Examples:
 | field |
@@ -169,7 +171,7 @@ Examples:
 | non-numeric characters | FX rate | “Input must contain ONLY numbers and periods ( . )” |
 
 Scenario 3: Present confirmation modal dialog  
-GIVEN I have provided valid update values  
+GIVEN I have entered a valid update values  
 WHEN I click "Update transaction"  
 THEN the confirmation modal dialog is presented asking me to confirm that I wish to update the transaction  
 AND provides an "Update" button which confirms the change and executes DatabaseRepository.update_transaction_details()  
