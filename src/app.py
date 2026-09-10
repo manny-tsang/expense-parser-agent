@@ -196,6 +196,12 @@ class PersonalExpenseTracker:
             color: #FFFFFF !important;
             margin-bottom: 0.25rem !important;
         }}
+
+        /* 6. DataFrame Selection Styling - Hide Checkbox Column */
+        [data-testid="stDataFrame"] div[role="columnheader"]:first-child,
+        [data-testid="stDataFrame"] div[role="gridcell"]:first-child {{
+            display: none !important;
+        }}
         </style>
         <div class="sticky-page-title">{page_title}</div>
         """
@@ -225,7 +231,7 @@ class PersonalExpenseTracker:
                 menu_title=None,
                 options=["Dashboard", "Upload", "Categorise", "Charts", "Search"],
                 icons=["house", "cloud-upload", "tag", "bar-chart", "search"],
-                default_index=4,
+                default_index=0,
                 styles={
                     "container": {
                         "padding": "0!important",
@@ -1083,6 +1089,7 @@ class PersonalExpenseTracker:
                             (cat_valid if cat_selected else True)
                             and (pair_valid if pair_provided else True)
                             and (cat_selected or pair_provided)
+                            and not partial_pair
                         )
 
                         update_btn = st.button(
