@@ -970,6 +970,9 @@ class PersonalExpenseTracker:
             # Row 3: Edit Transaction Card
             with st.container(border=True):
                 st.subheader("Edit transaction")
+                st.markdown(
+                    "Use this to update transactions that aren't made in AUD."
+                )
 
                 if (
                     "last_selected_tx_id" not in st.session_state
