@@ -161,7 +161,7 @@ class PersonalExpenseTracker:
             padding-right: 2rem !important;
         }}
 
-        /* 4. Equal Card Dimensions & Border Wrapper Lock (215px min-height) */
+        /* 4. Equal Card Dimensions & Border Wrapper Lock */
         div[data-testid="stVerticalBlockBorderWrapper"] > div {{
             min-height: 215px !important;
             flex: 1 !important;
@@ -177,11 +177,12 @@ class PersonalExpenseTracker:
 
         /* 5. Content Typography & Card Sizing */
         .metric-large {{
-            font-size: 8.8rem !important;
+            font-size: 2.5rem !important;
             font-weight: bold !important;
             line-height: 1.1 !important;
             color: #FFFFFF !important;
             margin-top: 0.5rem !important;
+            margin-bottom: 0.5rem !important;
         }}
 
         .period-label {{
@@ -191,7 +192,7 @@ class PersonalExpenseTracker:
         }}
 
         .period-val {{
-            font-size: 2rem !important;
+            font-size: 1.8rem !important;
             font-weight: 600 !important;
             color: #FFFFFF !important;
             margin-bottom: 0.25rem !important;
@@ -227,11 +228,32 @@ class PersonalExpenseTracker:
     @staticmethod
     def render_sidebar() -> str:
         with st.sidebar:
+            logo_path = "assets/logo_placeholder.png"
+            if os.path.exists(logo_path):
+                try:
+                    st.image(logo_path, width=160)
+                except Exception:
+                    st.markdown(
+                        """<div style="width:160px; height:160px; background-color:#262730; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#FAFAFA; font-weight:bold; font-size:1.1rem; margin-bottom:1rem;">PET LOGO</div>""",
+                        unsafe_allow_html=True,
+                    )
+            else:
+                st.markdown(
+                    """<div style="width:160px; height:160px; background-color:#262730; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#FAFAFA; font-weight:bold; font-size:1.1rem; margin-bottom:1rem;">PET LOGO</div>""",
+                    unsafe_allow_html=True,
+                )
+
+            options = ["Home", "Upload", "Categorise", "Charts", "Search"]
+            icons = ["house", "cloud-upload", "tag", "bar-chart", "search"]
+
+            current_nav = st.session_state.get("nav_page", "Home")
+            default_index = options.index(current_nav) if current_nav in options else 0
+
             selected = option_menu(
                 menu_title=None,
-                options=["Dashboard", "Upload", "Categorise", "Charts", "Search"],
-                icons=["house", "cloud-upload", "tag", "bar-chart", "search"],
-                default_index=0,
+                options=options,
+                icons=icons,
+                default_index=default_index,
                 styles={
                     "container": {
                         "padding": "0!important",
@@ -249,6 +271,284 @@ class PersonalExpenseTracker:
                 },
             )
         return str(selected)
+
+    def render_home_page(self) -> None:
+        st.markdown(
+            "Welcome to your Personal Expense Tracker — a central dashboard designed to aggregate multi-currency credit card statements, automate merchant categorisation, and track long-term spending patterns."
+        )
+
+        df = self.repo.get_transactions_dataframe()
+        uncat_df = self.repo.get_uncategorised_merchants()
+
+        valid_df = df.copy() if not df.empty else pd.DataFrame()
+        if not valid_df.empty and "trans_date" in valid_df.columns:
+            valid_df["trans_date_dt"] = pd.to_datetime(
+                valid_df["trans_date"], errors="coerce"
+            )
+            valid_df = valid_df.dropna(subset=["trans_date_dt"])
+        else:
+            valid_df["trans_date_dt"] = pd.Series(dtype="datetime64[ns]")
+
+        if not valid_df.empty and "txn_amount" in valid_df.columns:
+            valid_df["txn_amount"] = pd.to_numeric(
+                valid_df["txn_amount"], errors="coerce"
+            ).fillna(0.0)
+        elif not valid_df.empty:
+            valid_df["txn_amount"] = 0.0
+
+        # Row 1: KPI Summary Cards
+        row1_col1, row1_col2, row1_col3 = st.columns(3)
+
+        with row1_col1:
+            with st.container(border=True, height="stretch"):
+                st.subheader("Spend last 30-days")
+                if valid_df.empty:
+                    spend_30 = 0.0
+                    subtext_30 = "N/A"
+                else:
+                    max_date = valid_df["trans_date_dt"].max()
+                    start_30_date = max_date - pd.Timedelta(days=29)
+                    df_30 = valid_df[
+                        (valid_df["trans_date_dt"] >= start_30_date)
+                        & (valid_df["trans_date_dt"] <= max_date)
+                    ]
+                    spend_30 = float(df_30["txn_amount"].sum())
+                    subtext_30 = f"{start_30_date.strftime('%d %b %Y')} - {max_date.strftime('%d %b %Y')}"
+
+                st.markdown(
+                    f"""<div class="metric-card-container">
+                        <div class="metric-large">${spend_30:,.2f}</div>
+                        <div class="period-label">{subtext_30}</div>
+                    </div>""",
+                    unsafe_allow_html=True,
+                )
+
+        with row1_col2:
+            with st.container(border=True, height="stretch"):
+                st.subheader("Spend year-to-date")
+                if valid_df.empty:
+                    spend_ytd = 0.0
+                    ytd_count = 0
+                else:
+                    max_date = valid_df["trans_date_dt"].max()
+                    current_year = max_date.year
+                    df_ytd = valid_df[valid_df["trans_date_dt"].dt.year == current_year]
+                    spend_ytd = float(df_ytd["txn_amount"].sum())
+                    ytd_count = len(df_ytd)
+
+                st.markdown(
+                    f"""<div class="metric-card-container">
+                        <div class="metric-large">${spend_ytd:,.2f}</div>
+                        <div class="period-label">{ytd_count} transactions recorded</div>
+                    </div>""",
+                    unsafe_allow_html=True,
+                )
+
+        with row1_col3:
+            with st.container(border=True, height="stretch"):
+                st.subheader("Uncategorised merchants")
+                uncat_count = len(uncat_df) if not uncat_df.empty else 0
+                st.markdown(
+                    f"""<div class="metric-card-container">
+                        <div class="metric-large">{uncat_count}</div>
+                    </div>""",
+                    unsafe_allow_html=True,
+                )
+
+                btn_label = (
+                    "Click card to manage unmapped merchants →"
+                    if uncat_count > 0
+                    else "All merchants categorised"
+                )
+                if st.button(btn_label, key="nav_uncat_card_btn", use_container_width=True):
+                    st.session_state["nav_page"] = "Categorise"
+                    st.rerun()
+
+        st.write("")
+
+        # Row 2: Visual Analytics & System Operations
+        row2_col1, row2_col2 = st.columns([3, 2])
+
+        with row2_col1:
+            with st.container(border=True):
+                st.subheader("Spending trend")
+                st.markdown(
+                    "Year-on-year comparison showing the spend trajectory based on the current year-to-date position."
+                )
+
+                if valid_df.empty:
+                    st.caption("Prior year comparison unavailable")
+                else:
+                    max_date = valid_df["trans_date_dt"].max()
+                    current_year = max_date.year
+                    prior_year = current_year - 1
+                    max_month = max_date.month
+
+                    months = list(range(1, max_month + 1))
+                    month_names = [
+                        pd.to_datetime(f"2020-{m:02d}-01").strftime("%b") for m in months
+                    ]
+
+                    curr_df = valid_df[valid_df["trans_date_dt"].dt.year == current_year]
+                    curr_monthly = (
+                        curr_df.groupby(curr_df["trans_date_dt"].dt.month)["txn_amount"]
+                        .sum()
+                        .to_dict()
+                    )
+                    curr_ytd_amounts = [float(curr_monthly.get(m, 0.0)) for m in months]
+
+                    prior_df = valid_df[valid_df["trans_date_dt"].dt.year == prior_year]
+                    has_prior_data = not prior_df.empty
+
+                    fig = go.Figure()
+                    fig.add_trace(
+                        go.Scatter(
+                            x=month_names,
+                            y=curr_ytd_amounts,
+                            mode="lines+markers",
+                            name=f"{current_year} YTD",
+                            line=dict(color="#4A90E2", width=3),
+                            hovertemplate="<b>%{x}</b>: $%{y:,.2f}<extra></extra>",
+                        )
+                    )
+
+                    if has_prior_data:
+                        prior_monthly = (
+                            prior_df.groupby(prior_df["trans_date_dt"].dt.month)["txn_amount"]
+                            .sum()
+                            .to_dict()
+                        )
+                        prior_ytd_amounts = [float(prior_monthly.get(m, 0.0)) for m in months]
+                        fig.add_trace(
+                            go.Scatter(
+                                x=month_names,
+                                y=prior_ytd_amounts,
+                                mode="lines+markers",
+                                name=f"{prior_year} YTD",
+                                line=dict(color="#808495", width=2, dash="dash"),
+                                hovertemplate="<b>%{x}</b>: $%{y:,.2f}<extra></extra>",
+                            )
+                        )
+
+                    fig.update_layout(
+                        margin=dict(l=20, r=20, t=20, b=20),
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        font=dict(color="#FFFFFF"),
+                        xaxis=dict(showgrid=True, gridcolor="#31333F"),
+                        yaxis=dict(
+                            showgrid=True, gridcolor="#31333F", tickprefix="$"
+                        ),
+                        legend=dict(
+                            orientation="h",
+                            yanchor="bottom",
+                            y=1.02,
+                            xanchor="right",
+                            x=1,
+                            font=dict(color="#FFFFFF"),
+                        ),
+                    )
+
+                    st.plotly_chart(fig, use_container_width=True)
+
+                    if not has_prior_data:
+                        st.caption("Prior year comparison unavailable")
+
+        with row2_col2:
+            with st.container(border=True):
+                st.subheader("Tracker status")
+
+                last_filename = "None"
+                last_ingestion_date = "None"
+
+                conn = self.repo.get_connection()
+                try:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        'SELECT filename, processed_at FROM "statement_log" ORDER BY id DESC LIMIT 1'
+                    )
+                    row = cursor.fetchone()
+                    if row:
+                        last_filename = str(row[0]) if row[0] else "None"
+                        last_ingestion_date = str(row[1]) if row[1] else "None"
+                except Exception:
+                    pass
+                finally:
+                    conn.close()
+
+                total_records = len(df)
+                if total_records > 0 and "category_id" in df.columns:
+                    mapped_records = len(
+                        df[df["category_id"].notna() & (df["category_id"] != 1)]
+                    )
+                    health_pct = (mapped_records / total_records) * 100.0
+                else:
+                    health_pct = 0.0
+
+                st.markdown(f"**Last statement uploaded:** `{last_filename}`")
+                st.markdown(f"**Ingestion date:** `{last_ingestion_date}`")
+                st.markdown(f"**Total transactions:** `{total_records:,}`")
+                st.markdown(f"**Categorisation health:** `{health_pct:.1f}%`")
+
+        st.write("")
+
+        # Row 3: Recent Transactions Log Table
+        with st.container(border=True):
+            st.subheader("Last 10 transactions")
+
+            recent_df = pd.DataFrame(
+                columns=[
+                    "Transaction date",
+                    "Merchant",
+                    "Category",
+                    "Amount ($AUD)",
+                    "HKD Amount",
+                    "FX Rate",
+                ]
+            )
+
+            conn = self.repo.get_connection()
+            try:
+                query = """
+                    SELECT 
+                        t.trans_date AS "Transaction date",
+                        m.merchant_name AS "Merchant",
+                        COALESCE(override_cat.category_name, default_cat.category_name) AS "Category",
+                        t.txn_amount AS "Amount ($AUD)",
+                        t.hkd_amount AS "HKD Amount",
+                        t.fx_rate AS "FX Rate"
+                    FROM "transaction" t
+                    LEFT JOIN "merchant" m ON t.merchant_id = m.id
+                    LEFT JOIN "category" default_cat ON m.category_id = default_cat.id
+                    LEFT JOIN "category" override_cat ON t.category_id = override_cat.id
+                    ORDER BY t.id DESC
+                    LIMIT 10
+                """
+                raw_recent = pd.read_sql_query(query, conn)
+                if not raw_recent.empty:
+                    formatted_rows = []
+                    for _, row in raw_recent.iterrows():
+                        formatted_rows.append(
+                            {
+                                "Transaction date": self._format_cell(row.get("Transaction date")),
+                                "Merchant": self._format_cell(row.get("Merchant")),
+                                "Category": self._format_cell(row.get("Category")),
+                                "Amount ($AUD)": self._format_cell(
+                                    row.get("Amount ($AUD)"), is_amount=True
+                                ),
+                                "HKD Amount": self._format_cell(
+                                    row.get("HKD Amount"), is_amount=True
+                                ),
+                                "FX Rate": self._format_cell(row.get("FX Rate"), is_fx=True),
+                            }
+                        )
+                    recent_df = pd.DataFrame(formatted_rows)
+            except Exception:
+                pass
+            finally:
+                conn.close()
+
+            st.dataframe(recent_df, use_container_width=True, hide_index=True)
 
     def render_upload_page(self) -> None:
         st.markdown(
@@ -1123,17 +1423,17 @@ class PersonalExpenseTracker:
             initial_sidebar_state="expanded",
         )
         selected = self.render_sidebar()
-        page_title = "Charts" if selected == "Charts" else selected
+        st.session_state["nav_page"] = selected
+
+        page_title = selected
         self.inject_css(page_title)
 
-        if selected == "Upload":
+        if selected == "Home":
+            self.render_home_page()
+        elif selected == "Upload":
             self.render_upload_page()
         elif selected == "Categorise":
             self.render_categorise_page()
-        elif selected == "Dashboard":
-            st.info(
-                "Dashboard View - Select 'Upload' to ingest statements or 'Categorise' to manage rules."
-            )
         elif selected == "Charts":
             self.render_charts_page()
         elif selected == "Search":
