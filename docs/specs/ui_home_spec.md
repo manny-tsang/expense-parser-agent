@@ -16,11 +16,11 @@ SO THAT I have a snapshot view of key statistics that help me quickly understand
 ## 3. UI Design & Layout Architecture (`src/app.py`)
 
 ### 3.1 Sidebar Navigation Standard & Brand Logo
-- **Brand Logo Placeholder**:
+- **Brand Logo**:
   - Rendered at the top of the sidebar above menu items.
-  - Geometry: Aspect ratio strictly 1:1 (Square).
+  - Geometry: Aspect ratio strictly 1:1 (Square) displaying the custom 3D extruded overlapping chevron vector asset.
   - Width: Set to `160px` (guaranteed to be wider than the longest menu item, `"Categorise"`).
-  - Implementation: `st.sidebar.image("assets/logo_placeholder.png", width=160)` or SVG placeholder container.
+  - Implementation: `st.sidebar.image("assets/logo.svg", width=160)`
 - **Menu Items**: `["Home", "Upload", "Categorise", "Charts", "Search"]`
 - **Icons**: `["house", "cloud-upload", "tag", "bar-chart", "search"]`
 - **Default Index**: `0` (Home)

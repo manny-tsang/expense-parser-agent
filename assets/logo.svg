@@ -1,0 +1,85 @@
+<svg width="160" height="160" viewBox="0 0 160 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Long Directional Cast Shadow -->
+    <filter id="blockShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="-10" dy="14" stdDeviation="5" flood-color="#000000" flood-opacity="0.88"/>
+    </filter>
+
+    <!-- Teal Gradients -->
+    <linearGradient id="tealTop" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#12A597"/>
+      <stop offset="100%" stop-color="#0E7C72"/>
+    </linearGradient>
+    <linearGradient id="tealLeft" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0E7C72"/>
+      <stop offset="100%" stop-color="#084E48"/>
+    </linearGradient>
+    <linearGradient id="tealRight" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#18BBAA"/>
+      <stop offset="100%" stop-color="#12A597"/>
+    </linearGradient>
+
+    <!-- Gold Gradients -->
+    <linearGradient id="goldTop" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFC107"/>
+      <stop offset="100%" stop-color="#D69E00"/>
+    </linearGradient>
+    <linearGradient id="goldLeft" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#D69E00"/>
+      <stop offset="100%" stop-color="#997100"/>
+    </linearGradient>
+    <linearGradient id="goldRight" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFCA28"/>
+      <stop offset="100%" stop-color="#FFC107"/>
+    </linearGradient>
+
+    <!-- Red Gradients -->
+    <linearGradient id="redTop" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#E63946"/>
+      <stop offset="100%" stop-color="#B81D2A"/>
+    </linearGradient>
+    <linearGradient id="redLeft" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#B81D2A"/>
+      <stop offset="100%" stop-color="#7A0F1A"/>
+    </linearGradient>
+    <linearGradient id="redRight" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F25461"/>
+      <stop offset="100%" stop-color="#E63946"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Dark Background Container -->
+  <rect width="160" height="160" rx="16" fill="#0e1117"/>
+
+  <!-- 45-Degree Rotated Overlapping Group -->
+  <g transform="translate(80, 80) rotate(-45) translate(-80, -80)">
+    
+    <!-- 1. Red/Orange Chevron Block (Bottom - Drawn First) -->
+    <g filter="url(#blockShadow)">
+      <path d="M 38 98 L 75 76 L 112 98 L 100 109 L 75 92 L 50 109 Z" fill="url(#redTop)"/>
+      <path d="M 38 98 L 50 109 L 50 123 L 38 112 Z" fill="url(#redLeft)"/>
+      <path d="M 112 98 L 100 109 L 100 123 L 112 112 Z" fill="url(#redRight)"/>
+      <path d="M 50 109 L 75 92 L 75 106 L 50 123 Z" fill="url(#redLeft)"/>
+      <path d="M 75 92 L 100 109 L 100 123 L 75 106 Z" fill="url(#redRight)"/>
+    </g>
+
+    <!-- 2. Gold Chevron Block (Middle - Overlaps Red) -->
+    <g filter="url(#blockShadow)">
+      <path d="M 38 70 L 75 48 L 112 70 L 100 81 L 75 64 L 50 81 Z" fill="url(#goldTop)"/>
+      <path d="M 38 70 L 50 81 L 50 95 L 38 84 Z" fill="url(#goldLeft)"/>
+      <path d="M 112 70 L 100 81 L 100 95 L 112 84 Z" fill="url(#goldRight)"/>
+      <path d="M 50 81 L 75 64 L 75 78 L 50 95 Z" fill="url(#goldLeft)"/>
+      <path d="M 75 64 L 100 81 L 100 95 L 75 78 Z" fill="url(#goldRight)"/>
+    </g>
+
+    <!-- 3. Teal Chevron Block (Top - Overlaps Gold) -->
+    <g filter="url(#blockShadow)">
+      <path d="M 38 42 L 75 20 L 112 42 L 100 53 L 75 36 L 50 53 Z" fill="url(#tealTop)"/>
+      <path d="M 38 42 L 50 53 L 50 67 L 38 56 Z" fill="url(#tealLeft)"/>
+      <path d="M 112 42 L 100 53 L 100 67 L 112 56 Z" fill="url(#tealRight)"/>
+      <path d="M 50 53 L 75 36 L 75 50 L 50 67 Z" fill="url(#tealLeft)"/>
+      <path d="M 75 36 L 100 53 L 100 67 L 75 50 Z" fill="url(#tealRight)"/>
+    </g>
+
+  </g>
+</svg>
