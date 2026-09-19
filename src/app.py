@@ -228,10 +228,13 @@ class PersonalExpenseTracker:
     @staticmethod
     def render_sidebar() -> str:
         with st.sidebar:
-            logo_path = "assets/logo_placeholder.png"
+            logo_path = "assets/logo.svg"
+            if not os.path.exists(logo_path):
+                logo_path = "assets/logo_placeholder.png"
+
             if os.path.exists(logo_path):
                 try:
-                    st.image(logo_path, width=160)
+                    st.sidebar.image(logo_path, width=160)
                 except Exception:
                     st.markdown(
                         """<div style="width:160px; height:160px; background-color:#262730; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#FAFAFA; font-weight:bold; font-size:1.1rem; margin-bottom:1rem;">PET LOGO</div>""",
@@ -296,7 +299,7 @@ class PersonalExpenseTracker:
         elif not valid_df.empty:
             valid_df["txn_amount"] = 0.0
 
-        # Row 1: KPI Summary Cards
+        # Row 1: KPI Summary Cards (3 Equal Columns)
         row1_col1, row1_col2, row1_col3 = st.columns(3)
 
         with row1_col1:
@@ -366,7 +369,7 @@ class PersonalExpenseTracker:
 
         st.write("")
 
-        # Row 2: Visual Analytics & System Operations
+        # Row 2: Visual Analytics & System Operations (Split 3:2 Ratio)
         row2_col1, row2_col2 = st.columns([3, 2])
 
         with row2_col1:
@@ -377,6 +380,14 @@ class PersonalExpenseTracker:
                 )
 
                 if valid_df.empty:
+                    fig = go.Figure()
+                    fig.update_layout(
+                        margin=dict(l=20, r=20, t=20, b=20),
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        font=dict(color="#FFFFFF"),
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
                     st.caption("Prior year comparison unavailable")
                 else:
                     max_date = valid_df["trans_date_dt"].max()
@@ -492,7 +503,7 @@ class PersonalExpenseTracker:
 
         st.write("")
 
-        # Row 3: Recent Transactions Log Table
+        # Row 3: Recent Transactions Log Table (Full Width)
         with st.container(border=True):
             st.subheader("Last 10 transactions")
 
