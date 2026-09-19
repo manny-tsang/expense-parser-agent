@@ -48,8 +48,8 @@
     </linearGradient>
   </defs>
 
-  <!-- Dark Background Container -->
-  <rect width="160" height="160" rx="16" fill="#0e1117"/>
+  <!-- Updated Background matching sidebar navigation (#262730) -->
+  <rect width="160" height="160" rx="16" fill="#262730"/>
 
   <!-- 45-Degree Rotated Overlapping Group -->
   <g transform="translate(80, 80) rotate(-45) translate(-80, -80)">
