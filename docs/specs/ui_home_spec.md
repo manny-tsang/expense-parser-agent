@@ -24,6 +24,9 @@ SO THAT I have a snapshot view of key statistics that help me quickly understand
 - **Menu Items**: `["Home", "Upload", "Categorise", "Charts", "Search"]`
 - **Icons**: `["house", "cloud-upload", "tag", "bar-chart", "search"]`
 - **Default Index**: `0` (Home)
+- **State Synchronization & Component Key**:
+  - `option_menu` MUST be initialized with `key="nav_page"` to bind its component state directly to `st.session_state["nav_page"]`.
+  - This guarantees single-click responsiveness during manual sidebar selection and programmatic cross-tab routing (e.g., jumping from the Uncategorised Merchants card on Home directly to Categorise).
 
 ### 3.2 Page Header & Introductory Copy
 - **Header Title**: `Home`
