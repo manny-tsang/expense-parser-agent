@@ -226,6 +226,19 @@ class PersonalExpenseTracker:
             return "N/A", "N/A"
 
     @staticmethod
+    def _format_cell(val: Any, is_amount: bool = False, is_fx: bool = False) -> str:
+        if val is None or pd.isna(val) or str(val).strip() in ("", "nan", "None", "NaN", "<NA>"):
+            return "None"
+        try:
+            if is_amount:
+                return f"${float(val):,.2f}"
+            if is_fx:
+                return f"{float(val):.5f}"
+            return str(val)
+        except Exception:
+            return str(val)
+
+    @staticmethod
     def render_sidebar() -> str:
         with st.sidebar:
             logo_path = "assets/logo.svg"
@@ -257,6 +270,7 @@ class PersonalExpenseTracker:
                 options=options,
                 icons=icons,
                 default_index=default_index,
+                key="nav_page",
                 styles={
                     "container": {
                         "padding": "0!important",
@@ -299,7 +313,7 @@ class PersonalExpenseTracker:
         elif not valid_df.empty:
             valid_df["txn_amount"] = 0.0
 
-        # Row 1: KPI Summary Cards (3 Equal Columns)
+        # Row 1: KPI Summary Cards (3 Equal Columns, Equal Height)
         row1_col1, row1_col2, row1_col3 = st.columns(3)
 
         with row1_col1:
@@ -1118,19 +1132,6 @@ class PersonalExpenseTracker:
                 stats_df = pd.DataFrame(table_rows)
                 st.dataframe(stats_df, use_container_width=True, hide_index=True)
 
-    @staticmethod
-    def _format_cell(val: Any, is_amount: bool = False, is_fx: bool = False) -> str:
-        if val is None or pd.isna(val) or str(val).strip() in ("", "nan", "None", "NaN", "<NA>"):
-            return "None"
-        try:
-            if is_amount:
-                return f"${float(val):,.2f}"
-            if is_fx:
-                return f"{float(val):.5f}"
-            return str(val)
-        except Exception:
-            return str(val)
-
     def render_search_page(self) -> None:
         st.markdown(
             "Search historical transactions across merchant, amount, or date, and select any record from the results table to view its full details and perform category or FX rate overrides."
@@ -1434,7 +1435,6 @@ class PersonalExpenseTracker:
             initial_sidebar_state="expanded",
         )
         selected = self.render_sidebar()
-        st.session_state["nav_page"] = selected
 
         page_title = selected
         self.inject_css(page_title)
