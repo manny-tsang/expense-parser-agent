@@ -66,6 +66,43 @@ via REST API v3                             (src/repository.py, src/pdf_parser.p
 
 ---
 
+### 1.5 Environment Variables, Credential Scopes & Rotation Protocol
+
+To execute SDD automation engines locally and within remote CI/CD pipelines, the system relies on the environment variables detailed below.
+
+> **Security Guardrail**: Pure secret values reside exclusively in local `.env` files (enforced via `.gitignore`) and encrypted GitHub Repository Secrets. Raw API tokens or private keys MUST NEVER be committed to version control.
+
+#### 1.5.1 Required Environment Variables
+
+| Variable Name | Local Scope (`.env`) | Remote Scope (GitHub Secrets) | Consuming Service / Module | Purpose & Function |
+| :--- | :--- | :--- | :--- | :--- |
+| `GEMINI_API_KEY` | Yes | Yes | `agent_runner.py`<br>`jira_agent_runner.py` | Authenticates requests to Google GenAI SDK for spec parsing and Python code generation. |
+| `JIRA_BASE_URL` | Yes | Yes | `jira_agent_runner.py`<br>Gajira GitHub Actions | Base domain URL for your Atlassian Jira Cloud instance (e.g., `https://your-domain.atlassian.net`). |
+| `JIRA_USER_EMAIL` | Yes | Yes | `jira_agent_runner.py`<br>Gajira GitHub Actions | User email address linked to the Atlassian REST API account. |
+| `JIRA_API_TOKEN` | Yes | Yes | `jira_agent_runner.py`<br>Gajira GitHub Actions | Atlassian API token used for automated issue creation (REST v3) and git commit transition hooks. |
+| `GITHUB_TOKEN` | Yes | Managed by GitHub | `agent_runner.py` | Personal Access Token (PAT) / default secret used by `PyGithub` to push generated code commits to `main`. |
+
+#### 1.5.2 Credential Expiry & Token Rotation Protocol
+
+When rotating expiring credentials, update both local and remote stores simultaneously to prevent execution breaks in `agent_runner.py`, `jira_agent_runner.py`, or GitHub Actions workflows:
+
+1. **`JIRA_API_TOKEN` Rotation**:
+   - **Generation**: Navigate to **Atlassian Account Settings** > **Security** > **API tokens** and generate a new token.
+   - **Local Update**: Update `JIRA_API_TOKEN="<new_token>"` in `.env`.
+   - **Remote Update**: Navigate to **GitHub Repository** > **Settings** > **Secrets and variables** > **Actions** and update the `JIRA_API_TOKEN` repository secret.
+
+2. **`GEMINI_API_KEY` Rotation**:
+   - **Generation**: Navigate to **Google AI Studio** > **Get API key** and create a new API key.
+   - **Local Update**: Update `GEMINI_API_KEY="<new_key>"` in `.env`.
+   - **Remote Update**: Update the `GEMINI_API_KEY` secret under **GitHub Repository** > **Settings** > **Secrets and variables** > **Actions** (if CI/CD code generation steps are enabled).
+
+3. **`GITHUB_TOKEN` (Personal Access Token) Rotation**:
+   - **Generation**: Navigate to **GitHub Profile Settings** > **Developer Settings** > **Personal access tokens (Fine-grained or Tokens classic)**, generate a new token with `repo` write scopes, and copy the string.
+   - **Local Update**: Update `GITHUB_TOKEN="<new_pat>"` in `.env` to ensure `PyGithub` inside `agent_runner.py` can continue pushing code commits.
+   - **Remote Update**: GitHub Actions automatically injects `secrets.GITHUB_TOKEN` for workflow runs; if using a custom Personal Access Token for cross-repository operations, update `GH_PAT` under Repository Secrets.
+
+---
+
 ## 2. Directory Structure & File Taxonomy
 
 expense-parser-agent/

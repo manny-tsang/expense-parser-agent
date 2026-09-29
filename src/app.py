@@ -241,7 +241,7 @@ class PersonalExpenseTracker:
     @staticmethod
     def render_sidebar() -> str:
         with st.sidebar:
-            logo_path = "assets/logo.svg"
+            logo_path = "assets/logo.png"
             if not os.path.exists(logo_path):
                 logo_path = "assets/logo_placeholder.png"
 
