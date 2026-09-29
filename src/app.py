@@ -43,7 +43,11 @@ def confirm_merchant_mapping_dialog(
     current_cat_name: str,
     selected_new_cat: str,
     target_id: Any,
+<<<<<<< Updated upstream
     new_cat_id: int,
+=======
+    cat_id: int,
+>>>>>>> Stashed changes
 ) -> None:
     st.write(
         f"Please confirm that all transactions for '{selected_merchant}' are to be updated from '{current_cat_name}' to '{selected_new_cat}'?"
@@ -57,7 +61,11 @@ def confirm_merchant_mapping_dialog(
             "Save", type="primary", use_container_width=True, key="dialog_save_global"
         ):
             repo = DatabaseRepository(DB_PATH)
+<<<<<<< Updated upstream
             repo.update_merchant_category(target_id, new_cat_id)
+=======
+            repo.update_merchant_category(target_id, cat_id)
+>>>>>>> Stashed changes
             st.rerun()
 
 
@@ -845,11 +853,73 @@ class PersonalExpenseTracker:
                             current_merchant_cat,
                             selected_category,
                             target_id,
+<<<<<<< Updated upstream
                             new_cat_id,
+=======
+                            cat_id,
+>>>>>>> Stashed changes
                         )
 
         st.write("")
 
+<<<<<<< Updated upstream
+=======
+                selected_tx_id = st.selectbox(
+                    "Transaction",
+                    options=tx_ids,
+                    format_func=lambda tx_id: tx_display_map.get(
+                        tx_id, "Select a transaction"
+                    ),
+                    key="selected_tx_dropdown",
+                )
+
+                subcol1, subcol2 = st.columns(2)
+
+                with subcol1:
+                    st.text_input(
+                        "Current category",
+                        value=tx_cat_map.get(selected_tx_id, ""),
+                        disabled=True,
+                        key=f"current_cat_display_{selected_tx_id}",
+                    )
+
+                with subcol2:
+                    selected_new_cat = st.selectbox(
+                        "New category",
+                        options=["Select a category"] + category_list,
+                        key="tx_cat_select",
+                    )
+
+                update_tx_btn = st.button(
+                    "Update transaction category",
+                    type="primary",
+                    key="update_tx_category",
+                )
+
+                if update_tx_btn:
+                    current_cat_name = tx_cat_map.get(selected_tx_id, "")
+                    if (
+                        selected_tx_id is None
+                        or selected_new_cat == "Select a category"
+                    ):
+                        st.error(
+                            "Please select both a transaction and a new category before updating."
+                        )
+                    elif selected_new_cat == current_cat_name:
+                        st.error(
+                            "'Current category' and 'New category' must not be the same."
+                        )
+                    else:
+                        new_c_id = cat_name_to_id.get(selected_new_cat, 1)
+                        confirm_tx_category_dialog(
+                            current_cat_name,
+                            selected_new_cat,
+                            int(selected_tx_id),
+                            new_c_id,
+                        )
+
+        # Row 2: Full Width - Uncategorised merchants
+>>>>>>> Stashed changes
         st.subheader("Uncategorised merchants")
         st.markdown(
             "List of merchants currently assigned to 'Uncategorised' requiring mapping."
