@@ -266,6 +266,9 @@ class DatabaseRepository:
                 LEFT JOIN "category" default_cat ON m.category_id = default_cat.id
                 LEFT JOIN "category" override_cat ON t.category_id = override_cat.id
                 LEFT JOIN "currency" c ON t.purchase_currency_id = c.id
+                WHERE 
+				default_cat.id NOT IN (31700, 39397) 
+				OR override_cat.id NOT IN (31700, 39397)  
                 ORDER BY t.trans_date DESC, t.id DESC
             """
             df = pd.read_sql_query(query, conn)
