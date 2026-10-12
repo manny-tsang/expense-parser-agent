@@ -1,7 +1,9 @@
-# Feature Specification: Meta-Tooling Async Spec Refiner Engine
+# Feature Specification: Spec Refiner
 
 ## 1. Module Overview & Primary Intent
-The Spec Refiner Engine is a developer-facing meta-tool that executes asynchronous specification linting, Definition of Ready (DoR) verification, and advanced BDD Gherkin hardening on raw feature specifications. It acts as an automated quality gate between raw markdown spec drafting and Jira backlog creation.
+**As a** Delivery Lead,  
+**I want to** run an automated quality gate on raw feature specification markdown files,  
+**So that** I can enforce Definition of Ready (DoR) standards, expand edge cases, and harden Gherkin scenarios before creating Jira backlog items.
 
 ## 2. Module Boundaries & Ownership Contracts
 - **Primary Source File**: `src/spec_refiner.py`
