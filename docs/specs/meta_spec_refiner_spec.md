@@ -1,9 +1,8 @@
 # Feature Specification: Spec Refiner
 
 ## 1. Module Overview & Primary Intent
-**As a** Delivery Lead,  
-**I want to** run an automated quality gate on raw feature specification markdown files,  
-**So that** I can enforce Definition of Ready (DoR) standards, expand edge cases, and harden Gherkin scenarios before creating Jira backlog items.
+- **Epic Title**: Spec Refiner
+- **Epic Description**: As a Delivery Lead, I want to run an automated quality gate on raw feature specification markdown files, so that I can enforce Definition of Ready (DoR) standards, expand edge cases, and harden Gherkin scenarios before creating Jira backlog items.
 
 ## 2. Module Boundaries & Ownership Contracts
 - **Primary Source File**: `src/spec_refiner.py`
