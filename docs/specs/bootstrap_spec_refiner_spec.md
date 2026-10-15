@@ -6,7 +6,7 @@
 
 ## 2. Module Boundaries & Ownership Contracts
 - **Primary Source File**: `src/spec_refiner.py`
-- **Allowed Dependencies**: `google-genai`, `python-dotenv`, `argparse`, `os`, `sys`
+- **Allowed Dependencies**: `google-genai`, `python-dotenv`, `argparse`, `os`, `sys`, `time`
 - **Forbidden Operations**: Must not modify production database `db/personal-expense-tracker.db` or invoke Jira REST APIs directly.
 
 ## 3. Detailed Technical Requirements & Business Rules
@@ -15,6 +15,7 @@
 1. **CLI Execution Contract**: Takes a required positional argument pointing to any valid raw markdown spec file path (e.g., `python3 src/spec_refiner.py <input_spec_path>`).
 2. **Staging File Creation**: Reads input `[name].md` and outputs refined contents strictly to `[name].refined.md` in the same directory.
 3. **Immutable Source Safety**: The original raw `[name].md` file must remain untouched during refinement execution.
+4. **Resilience & 503 Retry Backoff**: Wraps Gemini API requests in an exponential backoff loop (retrying on HTTP 503 high demand spikes up to 5 attempts with 2s, 4s, 8s, 16s, 32s delays).
 
 ### 3.2 Refinement System Prompt & Advanced Gherkin Linting Rules
 The internal LLM prompt (utilizing model `gemini-3.6-flash` via `google-genai` SDK) must enforce five strict transformation rules:
@@ -45,6 +46,7 @@ The internal LLM prompt (utilizing model `gemini-3.6-flash` via `google-genai` S
 - **AND** the `spec_refiner.py` agent has been generated, reviewed, validated, and approved for use
 - **WHEN** the command `python3 src/spec_refiner.py <input_spec_path>` is executed in the terminal
 - **THEN** `spec_refiner.py` initializes `gemini-3.6-flash`
+- **AND** executes the request using an exponential backoff retry loop for 503 server demand spikes
 - **AND** generates a refined staging file labeled as `<original_file_name>.refined.md` in the `docs/specs` directory
 - **AND** the original `.md` specification remains completely unmodified
 
