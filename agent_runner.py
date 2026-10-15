@@ -1,9 +1,11 @@
 import argparse
 import os
 import sys
+import time
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+from google.genai.errors import ServerError
 from github import Github, Auth
 
 # Load environment variables from root .env
@@ -18,6 +20,32 @@ if not GEMINI_API_KEY:
 
 # Explicitly ensure GEMINI_API_KEY is set in environment for Google GenAI SDK
 os.environ["GEMINI_API_KEY"] = GEMINI_API_KEY
+
+
+def call_gemini_with_retry(client, model: str, prompt: str, config: types.GenerateContentConfig, max_retries: int = 5):
+    """Calls Gemini API with exponential backoff to gracefully handle 503 High Demand spikes."""
+    for attempt in range(1, max_retries + 1):
+        try:
+            return client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=config,
+            )
+        except ServerError as e:
+            if "503" in str(e) or getattr(e, "code", None) == 503:
+                wait_time = 2 ** attempt  # 2s, 4s, 8s, 16s, 32s
+                print(f"⚠️ 503 High Demand spike encountered. Retrying in {wait_time}s (Attempt {attempt}/{max_retries})...")
+                time.sleep(wait_time)
+            else:
+                raise e
+        except Exception as e:
+            if "503" in str(e):
+                wait_time = 2 ** attempt
+                print(f"⚠️ 503 High Demand spike encountered. Retrying in {wait_time}s (Attempt {attempt}/{max_retries})...")
+                time.sleep(wait_time)
+            else:
+                raise e
+    raise TimeoutError(f"Exceeded maximum retries ({max_retries}) for Gemini API due to 503 high demand.")
 
 
 def run_agent(spec_path: str, output_path: str, commit_message: str, context_paths: list = None):
@@ -60,9 +88,9 @@ STRICT SCOPE BOUNDARY:
         role_desc = "expert Python backend software engineer"
         scope_instruction = """
 STRICT SCOPE BOUNDARY:
-- You are writing/updating ONLY the data processing, parsing, and database repository layer (`src/pdf_parser.py`).
-- DO NOT write any Streamlit UI components, `st.title`, `st.sidebar`, page renderers, or Streamlit imports in this file.
-- Implement strictly backend classes like `HKStatementParser` and `DatabaseRepository`.
+- You are writing/updating ONLY the designated target module.
+- DO NOT write any Streamlit UI components, `st.title`, `st.sidebar`, page renderers, or Streamlit imports in backend non-UI files.
+- Follow clean object-oriented architecture and respect interface boundaries.
 """
 
     prompt = f"""
@@ -93,22 +121,17 @@ TARGET FILE TO MODIFY ({output_path}):
 
     print("🧠 Sending spec and target context to Gemini API for code generation...")
     client = genai.Client()
+    config = types.GenerateContentConfig(temperature=0.1)
 
-    response = client.models.generate_content(
-        model="gemini-3.6-flash",
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            temperature=0.1,
-        ),
-    )
-
+    # Execute request using retry logic for 503 spikes
+    response = call_gemini_with_retry(client, "gemini-3.6-flash", prompt, config)
     generated_code = response.text
 
-    # Extract clean code block from response
+    # Robust code extraction (splitting on outer fences to prevent nested literal block truncation)
     if "```python" in generated_code:
-        clean_code = generated_code.split("```python")[1].split("```")[0].strip()
+        clean_code = generated_code.split("```python", 1)[1].rsplit("```", 1)[0].strip()
     elif "```" in generated_code:
-        clean_code = generated_code.split("```")[1].split("```")[0].strip()
+        clean_code = generated_code.split("```", 1)[1].rsplit("```", 1)[0].strip()
     else:
         clean_code = generated_code.strip()
 
@@ -139,16 +162,16 @@ TARGET FILE TO MODIFY ({output_path}):
 
 def main(args=None):
     parser = argparse.ArgumentParser(description="Spec-Driven Code Generation Agent Engine")
-    
+
     parser.add_argument(
         "--spec",
         required=True,
-        help="Path to input markdown specification file (e.g., docs/specs/ui_categorisation_spec.md)"
+        help="Path to input markdown specification file (e.g., docs/specs/meta_spec_refiner_spec.md)"
     )
     parser.add_argument(
         "--target",
         required=True,
-        help="Target path where generated Python file will be saved (e.g., src/pdf_parser.py)"
+        help="Target path where generated Python file will be saved (e.g., src/spec_refiner.py)"
     )
     parser.add_argument(
         "--context",
@@ -158,7 +181,7 @@ def main(args=None):
     parser.add_argument(
         "--commit-msg",
         required=True,
-        help="Git commit message for automatic GitHub push (e.g., 'PET-12: Update parser schema')"
+        help="Git commit message for automatic GitHub push (e.g., 'PET-33 #devcomplete: Message')"
     )
 
     parsed_args = parser.parse_args(args)
