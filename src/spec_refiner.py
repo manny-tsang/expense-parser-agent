@@ -1,6 +1,7 @@
 import argparse
 import os
 import sys
+import time
 from typing import Optional
 from dotenv import load_dotenv
 from google import genai
@@ -55,18 +56,34 @@ class SpecRefiner:
         return cleaned
 
     def refine_spec(self, spec_content: str) -> str:
-        """Refine raw spec markdown content using the gemini-3.6-flash model."""
+        """Refine raw spec markdown content using the gemini-3.6-flash model with backoff retry."""
         config = types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT,
             temperature=0.2,
         )
-        response = self.client.models.generate_content(
-            model=self.model_name,
-            contents=spec_content,
-            config=config,
-        )
-        refined_text = response.text or ""
-        return self._strip_outer_code_fences(refined_text)
+        delays = [2, 4, 8, 16, 32]
+        for attempt in range(len(delays) + 1):
+            try:
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=spec_content,
+                    config=config,
+                )
+                refined_text = response.text or ""
+                return self._strip_outer_code_fences(refined_text)
+            except Exception as e:
+                err_msg = str(e)
+                code = getattr(e, "code", None) or getattr(e, "status_code", None)
+                is_503 = (
+                    code == 503
+                    or "503" in err_msg
+                    or "UNAVAILABLE" in err_msg.upper()
+                    or "HIGH DEMAND" in err_msg.upper()
+                )
+                if is_503 and attempt < len(delays):
+                    time.sleep(delays[attempt])
+                    continue
+                raise
 
     def refine_file(self, input_path: str) -> str:
         """Read source file, generate refined specification, and write to staging output file."""
