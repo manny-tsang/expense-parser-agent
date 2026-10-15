@@ -28,7 +28,7 @@ The internal LLM prompt (utilizing model `gemini-3.6-flash` via `google-genai` S
    - **Data Tables & Doc Strings**: Mandates inline Gherkin `Data Tables` for complex entity inputs and step preconditions.
    - **Multi-Outcome Coverage**: Ensures every story includes a Happy Path scenario, a Boundary/Edge Case scenario, and an Explicit Error/Failure state.
 4. **Edge Case & Module Boundary Expansion**: Automatically inserts processing logic for zero-spend states, missing reference data, and boundary limits while verifying compliance with `ARCHITECTURE.md`.
-5. **Clean Markdown Output**: Guarantees clean Markdown output without wrapping the document in top-level code fences (```markdown ... ```).
+5. **Clean Markdown Output**: Guarantees clean Markdown output without wrapping the document in top-level code fences.
 
 ## 4. User Stories & BDD Acceptance Criteria
 
