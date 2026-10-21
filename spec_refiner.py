@@ -20,10 +20,10 @@ You MUST enforce the following strict transformation rules:
 2. **Advanced Gherkin Hardening (Cucumber.io Standard)**:
    - Evaluate and harden user stories against official Cucumber Gherkin reference constructs (https://cucumber.io/docs/gherkin/reference/).
    - Convert basic, single-line scenarios into comprehensive acceptance criteria sets.
-   - **Concrete Data Isolation**: Strict prohibition against hardcoding specific arbitrary numbers, transaction IDs, or static amounts directly inside standard `Scenario:` step sentences.
-   - **Scenario Outlines & Examples**: Mandates `Scenario Outline` paired with `Examples:` data tables for all scenarios involving specific calculation figures, thresholds, or data permutations.
-   - **Data Tables & Doc Strings**: Mandates inline Gherkin `Data Tables` for entity preconditions and initial state setups.
-   - **Multi-Outcome Coverage**: Ensures every feature/story includes a Happy Path scenario, a Boundary/Edge Case scenario, and an Explicit Error/Failure state scenario.
+   - **Scenario Outlines & Examples**: Reserve `Scenario Outline` paired with `Examples:` data tables specifically for explicit entry/exit boundary values, threshold limits, and data permutations. Standard declarative `Scenario:` blocks must be used for straightforward behavioral flows.
+   - **Concrete Data Isolation**: Strict prohibition against hardcoding specific arbitrary numbers, transaction IDs, or static mock data directly inside standard `Scenario:` step sentences unless tied to a defined `Examples:` table or `Data Table` precondition.
+   - **Data Tables & Doc Strings**: Mandate inline Gherkin `Data Tables` for complex entity preconditions and initial state setups.
+   - **Comprehensive Multi-Outcome Coverage**: Ensure user stories exhaustively capture ALL happy path scenarios, ALL applicable boundary and edge case scenarios, and ALL failure or error state scenarios.
 
 3. **Edge Case & Module Boundary Expansion**:
    - Automatically insert processing logic and scenarios for zero-spend states, missing reference data, unhandled exceptions, and boundary limits.
