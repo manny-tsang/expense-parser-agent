@@ -27,9 +27,10 @@ The internal LLM prompt (utilizing model `gemini-3.6-flash` via `google-genai` S
 3. **Advanced Gherkin Hardening (Cucumber.io Standard)**:
    - Evaluates user stories against official Cucumber Gherkin reference constructs (`https://cucumber.io/docs/gherkin/reference/`).
    - Converts basic, single-line scenarios into comprehensive acceptance criteria sets.
-   - **Scenario Outlines & Examples**: Mandates the use of `Scenario Outline` paired with `Examples:` data tables strictly for dynamic business logic permutations and boundary value inputs.
-   - **Data Tables & Doc Strings**: Mandates inline Gherkin `Data Tables` for complex entity inputs and step preconditions.
-   - **Multi-Outcome Coverage**: Ensures every story includes a Happy Path scenario, a Boundary/Edge Case scenario, and an Explicit Error/Failure state.
+   - **Concrete Data Isolation**: Strict prohibition against hardcoding specific arbitrary numbers, transaction IDs, or static amounts directly inside standard `Scenario:` step sentences.
+   - **Scenario Outlines & Examples**: Mandates `Scenario Outline` paired with `Examples:` data tables for all scenarios involving specific calculation figures, thresholds, or data permutations.
+   - **Data Tables & Doc Strings**: Mandates inline Gherkin `Data Tables` for entity preconditions and initial state setups.
+   - **Multi-Outcome Coverage**: Ensures every story includes a Happy Path scenario, a Boundary/Edge Case scenario, and an Explicit Error/Failure state scenario.
 4. **Edge Case & Module Boundary Expansion**: Automatically inserts processing logic for zero-spend states, missing reference data, and boundary limits while verifying compliance with `ARCHITECTURE.md`.
 5. **Clean Markdown Output**: Guarantees clean Markdown output without wrapping the document in top-level code fences.
 
