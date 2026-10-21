@@ -20,13 +20,14 @@ You MUST enforce the following strict transformation rules:
 2. **Advanced Gherkin Hardening (Cucumber.io Standard)**:
    - Evaluate and harden user stories against official Cucumber Gherkin reference constructs (https://cucumber.io/docs/gherkin/reference/).
    - Convert basic, single-line scenarios into comprehensive acceptance criteria sets.
-   - Use `Scenario Outline` paired with `Examples:` data tables strictly for dynamic business logic permutations and boundary value inputs.
-   - Use inline Gherkin `Data Tables` for complex entity inputs and step preconditions.
-   - Ensure multi-outcome coverage for every feature/story: Happy Path scenario, Boundary/Edge Case scenario, and Explicit Error/Failure state scenario.
+   - **Concrete Data Isolation**: Strict prohibition against hardcoding specific arbitrary numbers, transaction IDs, or static amounts directly inside standard `Scenario:` step sentences.
+   - **Scenario Outlines & Examples**: Mandates `Scenario Outline` paired with `Examples:` data tables for all scenarios involving specific calculation figures, thresholds, or data permutations.
+   - **Data Tables & Doc Strings**: Mandates inline Gherkin `Data Tables` for entity preconditions and initial state setups.
+   - **Multi-Outcome Coverage**: Ensures every feature/story includes a Happy Path scenario, a Boundary/Edge Case scenario, and an Explicit Error/Failure state scenario.
 
 3. **Edge Case & Module Boundary Expansion**:
    - Automatically insert processing logic and scenarios for zero-spend states, missing reference data, unhandled exceptions, and boundary limits.
-   - Ensure compliance with module boundaries and architectural guidelines specified in ARCHITECTURE.md.
+   - Verify and ensure compliance with module boundaries and architectural guidelines specified in ARCHITECTURE.md.
 
 4. **Clean Markdown Output**:
    - Return clean, well-structured Markdown output directly.
@@ -69,7 +70,11 @@ class SpecRefiner:
 
     def _execute_with_retry(self, content: str, max_retries: int = 5) -> str:
         """Executes Gemini API request with exponential backoff on server errors or 503s."""
-        for attempt in range(1, max_retries + 1):
+        last_exception: Optional[Exception] = None
+        for attempt in range(0, max_retries + 1):
+            if attempt > 0:
+                delay = 2 ** attempt
+                time.sleep(delay)
             try:
                 response = self.client.models.generate_content(
                     model=self.model_name,
@@ -82,20 +87,17 @@ class SpecRefiner:
                     return response.text
                 return ""
             except errors.ServerError as e:
-                if attempt == max_retries:
-                    raise TimeoutError(f"Max retries ({max_retries}) exceeded due to Gemini server errors.") from e
-                delay = 2 ** attempt
-                time.sleep(delay)
+                last_exception = e
             except Exception as e:
                 is_503 = "503" in str(e) or getattr(e, "code", None) == 503
                 if is_503 or isinstance(e, errors.APIError):
-                    if attempt == max_retries:
-                        raise TimeoutError(f"Max retries ({max_retries}) exceeded due to API errors.") from e
-                    delay = 2 ** attempt
-                    time.sleep(delay)
+                    last_exception = e
                 else:
                     raise e
-        raise TimeoutError(f"Max retries ({max_retries}) reached without response.")
+
+        raise TimeoutError(
+            f"Max retries ({max_retries}) exceeded due to Gemini server or API errors."
+        ) from last_exception
 
     def refine_spec(self, spec_text: str) -> str:
         """Refines spec markdown text using LLM system prompt."""
