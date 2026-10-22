@@ -18,6 +18,8 @@
 4. **Resilience & Exponential Backoff Retry**: 
    - Wraps Gemini API requests in a dedicated retry function catching `google.genai.errors.ServerError` and 503 status errors.
    - Executes up to 5 retries (`max_retries=5`) calculating delay as `2 ** attempt` seconds (2s, 4s, 8s, 16s, 32s) before raising a `TimeoutError`.
+5. **Console Progress Telemetry**: 
+   - Displays real-time CLI console feedback during execution (e.g., initial execution notice with target path, Gemini API payload submission notification, retry backoff warnings, and output file completion confirmation).
 
 ### 3.2 Refinement System Prompt & Advanced Gherkin Linting Rules
 The internal LLM prompt (utilizing model `gemini-3.6-flash` via `google-genai` SDK) must enforce five strict transformation rules:
