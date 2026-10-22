@@ -70,10 +70,16 @@ class SpecRefiner:
 
     def _execute_with_retry(self, content: str, max_retries: int = 5) -> str:
         """Executes Gemini API request with exponential backoff on server errors or 503s."""
+        print(f"Submitting payload to Gemini API model '{self.model_name}'...")
         last_exception: Optional[Exception] = None
         for attempt in range(0, max_retries + 1):
             if attempt > 0:
                 delay = 2 ** attempt
+                print(
+                    f"Warning: Gemini API call failed with temporary error. Retrying in {delay}s "
+                    f"(attempt {attempt}/{max_retries})...",
+                    file=sys.stderr,
+                )
                 time.sleep(delay)
             try:
                 response = self.client.models.generate_content(
@@ -110,6 +116,7 @@ class SpecRefiner:
             print(f"Error: Specification file not found at path '{input_path}'", file=sys.stderr)
             sys.exit(1)
 
+        print(f"Starting specification refinement for target path: {input_path}")
         with open(input_path, "r", encoding="utf-8") as f:
             raw_content = f.read()
 
