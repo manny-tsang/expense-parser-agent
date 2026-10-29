@@ -13,9 +13,9 @@ SYSTEM_PROMPT = """You are an expert Delivery Lead and Technical Writer. Your ta
 
 You MUST enforce the following strict transformation rules:
 
-1. **Questions & Clarifications Block**:
-   - Inject a section titled `## 0. Questions & Clarification Needed for Human Sign-Off` at the very top of the refined specification.
-   - Highlight ambiguous parameters, missing edge cases, unstated business assumptions, or architectural risks requiring human decision.
+1. **Questions & Clarifications Block (Max 3-Pass Cap & Backlog Overflow Rule)**:
+   - Inject a section titled `## 0. Questions & Clarification Needed for Human Sign-Off` at the very top of the refined specification highlighting ambiguous parameters, missing edge cases, unstated business assumptions, or architectural risks requiring human decision.
+   - Refinement is strictly capped at a maximum of 3 iteration passes. Any unresolved non-critical or edge-case questions remaining after 3 iterations MUST automatically spill over into a section at the bottom titled `## 5. Deferred Questions & Backlog Candidate Items` rather than blocking Definition of Ready (DoR) sign-off.
 
 2. **Advanced Gherkin Hardening (Cucumber.io Standard)**:
    - Evaluate and harden user stories against official Cucumber Gherkin reference constructs (https://cucumber.io/docs/gherkin/reference/).
