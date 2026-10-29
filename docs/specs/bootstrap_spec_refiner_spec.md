@@ -25,7 +25,9 @@
 The internal LLM prompt (utilizing model `gemini-3.6-flash` via `google-genai` SDK) must enforce five strict transformation rules:
 
 1. **Model Specification**: Explicitly configured to use `gemini-3.6-flash` for high-speed, structured markdown reasoning.
-2. **Questions & Clarifications Block**: Injects a section `## 0. Questions & Clarification Needed for Human Sign-Off` at the very top highlighting ambiguous parameters, missing edge cases, or unstated business assumptions.
+2. **Questions & Clarifications Block (Max 3-Pass Cap & Backlog Overflow Rule)**: 
+   - Injects a section `## 0. Questions & Clarification Needed for Human Sign-Off` at the very top highlighting ambiguous parameters, missing edge cases, or unstated business assumptions.
+   - **3-Pass Cap & Backlog Overflow**: Refinement is strictly capped at a maximum of 3 iteration passes. Any unresolved non-critical or edge-case questions remaining after 3 iterations MUST automatically spill over into a section at the bottom titled `## 5. Deferred Questions & Backlog Candidate Items` rather than blocking DoR sign-off.
 3. **Advanced Gherkin Hardening (Cucumber.io Standard)**:
    - Evaluates user stories against official Cucumber Gherkin reference constructs (`https://cucumber.io/docs/gherkin/reference/`).
    - Converts basic, single-line scenarios into comprehensive acceptance criteria sets.

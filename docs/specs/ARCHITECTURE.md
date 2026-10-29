@@ -11,43 +11,58 @@ The Personal Expense Tracker (PET) application serves as the production domain�
 
 ### 1.2 End-to-End SDD & AI Delivery Workflow
 
-All software engineering lifecycle activities MUST follow this 4-step orchestration pipeline:
+All software engineering lifecycle activities MUST follow this 5-step orchestration pipeline:
 
 [ Step 1: Human Specification ]
-│
-▼
-docs/specs/_spec.md (Markdown Source of Truth)
-│
-┌──────┴────────────────────────────────────────┐
+              │
+              ▼
+    docs/specs/[name].md (Raw Specification Source)
+              │
+              ▼
+[ Step 2: Automated Quality Gate & Spec Refinement ]
+python3 spec_refiner.py docs/specs/[name].md
+              ├── Enforces Cucumber Gherkin & DoR Standards
+              ├── Evaluates Boundary Conditions & Edge Cases
+              └── Generates docs/specs/[name].refined.md
+              │
+              ▼
+┌─────────────┴─────────────────────────────────┐
 ▼                                               ▼
-[ Step 2: Jira Automation ]              [ Step 3: Code Generation Engine ]
+[ Step 3: Jira Backlog Generation ]      [ Step 4: Code Generation Engine ]
 python3 jira_agent_runner.py              python3 agent_runner.py
-├── Reads spec markdown                   ├── Reads spec markdown + target file
-├── Calls Gemini API (Spec Parser)        ├── Calls Gemini API (Role-Scoped System Prompt)
-└── Creates Epics & Stories in Jira       └── Generates executable Python source code
-via REST API v3                             (src/repository.py, src/pdf_parser.py, src/app.py)
-│
-▼
-[ Step 4: Git & Local Sync ]
+├── Reads refined spec markdown           ├── Reads refined spec + target file
+├── Calls Gemini API (Spec Parser)        ├── Calls Gemini API (Scoped System Prompt)
+└── Creates Epics & Stories in Jira       └── Generates executable Python code
+    via REST API v3                           (src/repository.py, src/app.py)
+              │
+              ▼
+[ Step 5: Git & Local Sync ]
 ├── Automated Commit to GitHub Main Branch
 └── Local VS Code Pull & Streamlit Validation
 
 1. **Step 1 — Requirements & Specification Drafting**:
-   - Human developer and AI draft, iterate, and finalize formal Markdown specification files in `docs/specs/` (e.g., `database_repository_spec.md`, `ui_categorisation_spec.md`).
+   - Human developer and AI draft, iterate, and finalize formal Markdown specification files in `docs/specs/` (e.g., `database_repository_spec.md`, `budget_projection_spec.md`).
    - Specifications explicitly establish acceptance criteria (BDD GIVEN/WHEN/THEN), module boundaries, database schemas, and interface contracts.
 
-2. **Step 2 — Backlog Generation & Jira Orchestration (`jira_agent_runner.py`)**:
-   - The markdown spec is passed into `jira_agent_runner.py`.
-   - The runner uses the Gemini API (`gemini-3.6-flash`) to parse structured Epics and BDD User Stories out of the markdown text.
+2. **Step 2 — Automated Quality Gate & Spec Refinement (`spec_refiner.py`)**:
+   - The raw markdown specification is passed into `spec_refiner.py`.
+   - The refiner invokes `gemini-3.6-flash` via the Google GenAI SDK using exponential backoff retry loops (`max_retries=5`) to absorb 503 high-demand spikes.
+   - **Quality Gate Rules**: Enforces Definition of Ready (DoR) standards, expands edge cases, isolates concrete data into Gherkin `Examples:` tables, and highlights unstated assumptions in `## 0. Questions & Clarification Needed for Human Sign-Off`.
+   - **Iteration Bounding & Overflow Rule**: Refinement is strictly capped at a **maximum of 3 iteration passes**. Critical architectural assumptions are resolved in Section 3 business rules, while non-blocking edge cases remaining after Pass 3 automatically overflow into `## 5. Deferred Questions & Backlog Candidate Items` to prevent infinite clarification loops and clear DoR.
+   - Outputs a staging file strictly labeled as `[name].refined.md` while keeping the source `[name].md` untouched.
+   
+3. **Step 3 — Backlog Generation & Jira Orchestration (`jira_agent_runner.py`)**:
+   - The refined markdown spec (`[name].refined.md`) is passed into `jira_agent_runner.py`.
+   - The runner uses the Gemini API (`gemini-3.6-flash`) to parse structured Epics and BDD User Stories out of the refined text.
    - The runner invokes Atlassian Jira REST API v3 to automatically create the Epic and child Story issues in Jira under project key `PET` and set initial workflow states.
 
-3. **Step 3 — Spec-Driven Code Generation (`agent_runner.py`)**:
-   - The same markdown spec (along with optional context files) is passed to `agent_runner.py`.
+4. **Step 4 — Spec-Driven Code Generation (`agent_runner.py`)**:
+   - The refined markdown spec (along with optional context files) is passed to `agent_runner.py`.
    - The runner initializes Gemini API with strict role guidance (e.g., Streamlit UI vs. Backend Python Engineer) to protect module ownership boundaries.
    - Gemini generates clean, executable Python code strictly fulfilling the spec without manual code writing.
 
-4. **Step 4 — Automated Remote Commit & Local Validation**:
-   - Generated code is saved locally and committed directly to GitHub main branch via `PyGithub` integration[cite: 4].
+5. **Step 5 — Automated Remote Commit & Local Validation**:
+   - Generated code is saved locally and committed directly to GitHub main branch via `PyGithub` integration.
    - Local VS Code workspace receives synced updates to validate functionality via `streamlit run src/app.py`.
    - Smart commits (`PET-X #devcomplete`) trigger GitHub Actions (`.github/workflows/jira-transitions.yml`) using `atlassian/gajira-transition@v3` to advance story statuses automatically across the Jira workflow.
 
