@@ -14,19 +14,28 @@
 ### 3.1 Input & Staging Output Pipeline
 1. **CLI Execution Contract**: Takes a required positional argument pointing to any valid raw markdown spec file path (e.g., `python3 spec_refiner.py <input_spec_path>`).
 2. **Staging File Creation**: Reads input `[name].md` and outputs refined contents strictly to `[name].refined.md` in the same directory.
-3. **Immutable Source Safety**: The original raw `[name].md` file must remain untouched during refinement execution.
-4. **Resilience & Exponential Backoff Retry**: 
+3. **Automated Pass Count Tracking & Header Injection**: 
+   - Reads the input specification file to detect any existing `Refinement Pass: X` metadata header.
+   - If no pass metadata exists, initializes the count as `Refinement Pass: 1`. If an existing pass header is present, increments the value to `Refinement Pass: X+1`.
+   - Injects/updates `Refinement Pass: X+1` as a top-level metadata header directly inside `[name].refined.md`.
+   - When the detected or incremented pass count is $\ge 3$, automatically enforces the spillover rule by moving remaining unresolved edge-case or non-blocking questions into `## 5. Deferred Questions & Backlog Candidate Items`.
+4. **Immutable Source Safety**: The original raw `[name].md` file must remain untouched during refinement execution.
+5. **Resilience & Exponential Backoff Retry**: 
    - Wraps Gemini API requests in a dedicated retry function catching `google.genai.errors.ServerError` and 503 status errors.
    - Executes up to 5 retries (`max_retries=5`) calculating delay as `2 ** attempt` seconds (2s, 4s, 8s, 16s, 32s) before raising a `TimeoutError`.
-5. **Console Progress Telemetry**: 
-   - Displays real-time CLI console feedback during execution (e.g., initial execution notice with target path, Gemini API payload submission notification, retry backoff warnings, and output file completion confirmation).
+6. **Console Progress Telemetry**: 
+   - Displays real-time CLI console feedback during execution (e.g., initial execution notice with target path, Gemini API payload submission notification, retry backoff warnings, active pass count, and output file completion confirmation).
 
 ### 3.2 Refinement System Prompt & Advanced Gherkin Linting Rules
 The internal LLM prompt (utilizing model `gemini-3.6-flash` via `google-genai` SDK) must enforce five strict transformation rules:
 
 1. **Model Specification**: Explicitly configured to use `gemini-3.6-flash` for high-speed, structured markdown reasoning.
-2. **Questions & Clarifications Block (Max 3-Pass Cap & Backlog Overflow Rule)**: 
+2. **Questions & Clarifications Block (3-Part Schema & 3-Pass Cap)**: 
    - Injects a section `## 0. Questions & Clarification Needed for Human Sign-Off` at the very top highlighting ambiguous parameters, missing edge cases, or unstated business assumptions.
+   - **Standardized 3-Part Question Schema**: Every question generated in Section 0 MUST strictly follow a structured 3-part format (or 4-column Markdown table):
+     1. **Question**: Clear, concise description of the specific requirement or ambiguity.
+     2. **Justification & Impact**: Explanation of why clarification is required and which system component or business rule is affected.
+     3. **Proposed Default / Response**: Concrete recommended assumption or fallback logic for immediate human sign-off.
    - **3-Pass Cap & Backlog Overflow**: Refinement is strictly capped at a maximum of 3 iteration passes. Any unresolved non-critical or edge-case questions remaining after 3 iterations MUST automatically spill over into a section at the bottom titled `## 5. Deferred Questions & Backlog Candidate Items` rather than blocking DoR sign-off.
 3. **Advanced Gherkin Hardening (Cucumber.io Standard)**:
    - Evaluates user stories against official Cucumber Gherkin reference constructs (`https://cucumber.io/docs/gherkin/reference/`).
