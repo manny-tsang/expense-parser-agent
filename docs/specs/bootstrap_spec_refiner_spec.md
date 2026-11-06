@@ -14,29 +14,31 @@
 ### 3.1 Input & Staging Output Pipeline
 1. **CLI Execution Contract**: Takes a required positional argument pointing to any valid raw markdown spec file path (e.g., `python3 spec_refiner.py <input_spec_path>`).
 2. **Staging File Creation**: Reads input `[name].md` and outputs refined contents strictly to `[name].refined.md` in the same directory.
-3. **Automated Pass Count Tracking & Header Injection**: 
-   - Reads the input specification file to detect any existing `Refinement Pass: X` metadata header.
-   - If no pass metadata exists, initializes the count as `Refinement Pass: 1`. If an existing pass header is present, increments the value to `Refinement Pass: X+1`.
-   - Injects/updates `Refinement Pass: X+1` as a top-level metadata header directly inside `[name].refined.md`.
-   - When the detected or incremented pass count is $\ge 3$, automatically enforces the spillover rule by moving remaining unresolved edge-case or non-blocking questions into `## 5. Deferred Questions & Backlog Candidate Items`.
+3. **Automated Pass Count Tracking & Staging Inspection**: 
+   - Reads the target input file `[name].md` AND inspects if a corresponding `[name].refined.md` staging file exists in the directory.
+   - Extracts existing `Refinement Pass: X` metadata from `[name].refined.md` (or `[name].md` if present).
+   - If no prior pass header exists in either file, initializes the pass count to `Refinement Pass: 1`.
+   - If a prior pass header $X$ is detected, automatically increments the active run to `Refinement Pass: X+1`.
+   - Injects `Refinement Pass: X+1` as the top-level metadata header at the very beginning of the output `[name].refined.md` file.
+   - When the incremented pass count is $\ge 3$, automatically enforces the spillover rule by moving remaining unresolved edge-case or non-blocking questions into `## 5. Deferred Questions & Backlog Candidate Items`.
 4. **Immutable Source Safety**: The original raw `[name].md` file must remain untouched during refinement execution.
 5. **Resilience & Exponential Backoff Retry**: 
    - Wraps Gemini API requests in a dedicated retry function catching `google.genai.errors.ServerError` and 503 status errors.
    - Executes up to 5 retries (`max_retries=5`) calculating delay as `2 ** attempt` seconds (2s, 4s, 8s, 16s, 32s) before raising a `TimeoutError`.
 6. **Console Progress Telemetry**: 
-   - Displays real-time CLI console feedback during execution (e.g., initial execution notice with target path, Gemini API payload submission notification, retry backoff warnings, active pass count, and output file completion confirmation).
+   - Displays real-time CLI console feedback during execution (e.g., initial execution notice with target path, active pass count, Gemini API payload submission notification, retry backoff warnings, and output file completion confirmation).
 
 ### 3.2 Refinement System Prompt & Advanced Gherkin Linting Rules
 The internal LLM prompt (utilizing model `gemini-3.6-flash` via `google-genai` SDK) must enforce five strict transformation rules:
 
 1. **Model Specification**: Explicitly configured to use `gemini-3.6-flash` for high-speed, structured markdown reasoning.
 2. **Questions & Clarifications Block (3-Part Schema & 3-Pass Cap)**: 
-   - Injects a section `## 0. Questions & Clarification Needed for Human Sign-Off` at the very top highlighting ambiguous parameters, missing edge cases, or unstated business assumptions.
+   - Injects a section `## 0. Questions & Clarification Needed for Human Sign-Off` at the very top (immediately following `Refinement Pass: X`) highlighting ambiguous parameters, missing edge cases, or unstated business assumptions.
    - **Standardized 3-Part Question Schema**: Every question generated in Section 0 MUST strictly follow a structured 3-part format, separated into distinct bullet points (DO NOT put into a table format, this is difficult to read in an IDE like VS Code):
-     1. **Question**: Clear, concise description of the specific requirement or ambiguity.
-     2. **Justification & Impact**: Explanation of why clarification is required and which system component or business rule is affected.
-     3. **Proposed Default / Response**: Concrete recommended assumption or fallback logic for immediate human sign-off.
-   - **3-Pass Cap & Backlog Overflow**: Refinement is strictly capped at a maximum of 3 iteration passes. Any unresolved non-critical or edge-case questions remaining after 3 iterations MUST automatically spill over into a section at the bottom titled `## 5. Deferred Questions & Backlog Candidate Items` rather than blocking DoR sign-off.
+     - **Question**: Clear, concise description of the specific requirement or ambiguity.
+     - **Justification & Impact**: Explanation of why clarification is required and which system component or business rule is affected.
+     - **Proposed Default / Response**: Concrete recommended assumption or fallback logic for immediate human sign-off.
+   - **3-Pass Cap & Backlog Overflow Rule**: Refinement is strictly capped at a maximum of 3 iteration passes. When the current pass count is 3 or higher (Refinement Pass >= 3), all remaining unresolved non-critical or edge-case questions MUST automatically spill over into a section at the bottom titled `## 5. Deferred Questions & Backlog Candidate Items` instead of blocking DoR sign-off in Section 0.
 3. **Advanced Gherkin Hardening (Cucumber.io Standard)**:
    - Evaluates user stories against official Cucumber Gherkin reference constructs (`https://cucumber.io/docs/gherkin/reference/`).
    - Converts basic, single-line scenarios into comprehensive acceptance criteria sets.
