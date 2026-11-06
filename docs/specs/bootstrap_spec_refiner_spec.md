@@ -32,7 +32,7 @@ The internal LLM prompt (utilizing model `gemini-3.6-flash` via `google-genai` S
 1. **Model Specification**: Explicitly configured to use `gemini-3.6-flash` for high-speed, structured markdown reasoning.
 2. **Questions & Clarifications Block (3-Part Schema & 3-Pass Cap)**: 
    - Injects a section `## 0. Questions & Clarification Needed for Human Sign-Off` at the very top highlighting ambiguous parameters, missing edge cases, or unstated business assumptions.
-   - **Standardized 3-Part Question Schema**: Every question generated in Section 0 MUST strictly follow a structured 3-part format (or 4-column Markdown table):
+   - **Standardized 3-Part Question Schema**: Every question generated in Section 0 MUST strictly follow a structured 3-part format, separated into distinct bullet points (DO NOT put into a table format, this is difficult to read in an IDE like VS Code):
      1. **Question**: Clear, concise description of the specific requirement or ambiguity.
      2. **Justification & Impact**: Explanation of why clarification is required and which system component or business rule is affected.
      3. **Proposed Default / Response**: Concrete recommended assumption or fallback logic for immediate human sign-off.
