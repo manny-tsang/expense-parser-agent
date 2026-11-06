@@ -123,7 +123,11 @@ class SpecRefiner:
             except errors.ServerError as e:
                 last_exception = e
             except Exception as e:
-                is_503 = "503" in str(e) or getattr(e, "code", None) == 503
+                is_503 = (
+                    "503" in str(e)
+                    or getattr(e, "code", None) == 503
+                    or getattr(e, "status_code", None) == 503
+                )
                 if is_503 or isinstance(e, errors.APIError):
                     last_exception = e
                 else:
@@ -157,13 +161,24 @@ class SpecRefiner:
         with open(input_path, "r", encoding="utf-8") as f:
             raw_content = f.read()
 
+        output_path = self.get_output_path(input_path)
+
+        # Inspect pass count in both raw input and staging output file if present
         current_pass = self.extract_pass_count(raw_content)
+        if os.path.exists(output_path) and output_path != input_path:
+            try:
+                with open(output_path, "r", encoding="utf-8") as f:
+                    staging_content = f.read()
+                staging_pass = self.extract_pass_count(staging_content)
+                current_pass = max(current_pass, staging_pass)
+            except Exception:
+                pass
+
         next_pass = current_pass + 1
         print(f"Active Refinement Pass: {next_pass}")
 
         refined_content = self.refine_spec(raw_content, pass_count=next_pass)
 
-        output_path = self.get_output_path(input_path)
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(refined_content)
 
@@ -178,7 +193,7 @@ def main() -> None:
     parser.add_argument(
         "input_spec_path",
         type=str,
-        help="Path to the input markdown feature specification file."
+        help="Path to the input markdown feature specification file.",
     )
     args = parser.parse_args()
 
