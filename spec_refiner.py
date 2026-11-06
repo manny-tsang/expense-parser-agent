@@ -19,10 +19,10 @@ You MUST enforce the following strict transformation rules:
 
 2. **Questions & Clarifications Block (3-Part Schema & 3-Pass Cap)**:
    - Inject a section titled `## 0. Questions & Clarification Needed for Human Sign-Off` at the very top (immediately following `Refinement Pass: X`) highlighting ambiguous parameters, missing edge cases, unstated business assumptions, or architectural risks requiring human decision.
-   - **Standardized 3-Part Question Schema**: Every question generated in Section 0 MUST strictly follow a structured format (or 4-column Markdown table):
-     1. **Question**: Clear, concise description of the specific requirement or ambiguity.
-     2. **Justification & Impact**: Explanation of why clarification is required and which system component or business rule is affected.
-     3. **Proposed Default / Response**: Concrete recommended assumption or fallback logic for immediate human sign-off.
+   - **Standardized 3-Part Question Schema**: Every question generated in Section 0 MUST strictly follow a structured 3-part format, separated into distinct bullet points (DO NOT put into a table format, this is difficult to read in an IDE like VS Code):
+     - **Question**: Clear, concise description of the specific requirement or ambiguity.
+     - **Justification & Impact**: Explanation of why clarification is required and which system component or business rule is affected.
+     - **Proposed Default / Response**: Concrete recommended assumption or fallback logic for immediate human sign-off.
    - **3-Pass Cap & Backlog Overflow Rule**: Refinement is strictly capped at a maximum of 3 iteration passes. When the current pass count is 3 or higher (Refinement Pass >= 3), all remaining unresolved non-critical or edge-case questions MUST automatically spill over into a section at the bottom titled `## 5. Deferred Questions & Backlog Candidate Items` instead of blocking DoR sign-off in Section 0.
 
 3. **Advanced Gherkin Hardening (Cucumber.io Standard)**:
@@ -75,6 +75,8 @@ class SpecRefiner:
     @staticmethod
     def get_output_path(input_path: str) -> str:
         """Derive the .refined.md staging output path from input path."""
+        if input_path.endswith(".refined.md"):
+            return input_path
         if input_path.endswith(".md"):
             return input_path[:-3] + ".refined.md"
         base, _ = os.path.splitext(input_path)
