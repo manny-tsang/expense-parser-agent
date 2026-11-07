@@ -17,8 +17,8 @@ Refinement Pass: 1
 ---
 
 ## 1. Module Overview & Primary Intent
-- **Epic Title**: HK Card Budget Projection Engine
-- **Epic Description**: As a Personal Expense Tracker user, I want a forward-looking budget planning engine to compute rolling spend baselines across multi-currency accounts (AUD, HKD, USD), suppress transaction outliers, set target category allocations, and export summaries to external spreadsheets.
+- **Epic Title**: Budget Projection
+- **Epic Description**: AS A Personal Expense Tracker user, I WANT a forward-looking budget planning engine to compute rolling spend baselines across multi-currency accounts (AUD, HKD, USD), suppress transaction outliers, set target category allocations, and export summaries to external spreadsheets SO THAT I can appropriately setup my budget month-on-month.
 
 ---
 
@@ -111,7 +111,7 @@ The exported and displayed summary table strictly adheres to the following 7-col
 Feature: Historical Category Baseline Calculation
 
   Background:
-    Given the database ledger contains historical transaction records:
+    GIVEN the database ledger contains historical transaction records:
       | Transaction ID | Date       | Category  | Currency | Amount   |
       | TXN-101        | 2023-10-15 | Groceries | AUD      | 150.00   |
       | TXN-102        | 2023-10-20 | Groceries | AUD      | 1200.00  |
@@ -119,17 +119,17 @@ Feature: Historical Category Baseline Calculation
       | TXN-104        | 2023-11-12 | Dining    | HKD      | 500.00   |
       | TXN-105        | 2023-11-15 | Groceries | USD      | 80.00    |
 
-  Scenario Outline: Calculating baseline averages across different lookback windows with outlier filtering
-    Given the user sets the historical lookback window to "<lookback_window>"
-    And the user sets the transient outlier slider threshold to <outlier_threshold>
-    When the baseline computation engine aggregates transaction records
-    Then the calculated distinct month denominator N_months should be <expected_n_months>
-    And the baseline projection summary table should contain the calculated averages:
+  Scenario Outline 1: Calculating baseline averages across different lookback windows with outlier filtering
+    GIVEN the user sets the historical lookback window to "<lookback_window>"
+    AND the user sets the transient outlier slider threshold to <outlier_threshold>
+    WHEN the baseline computation engine aggregates transaction records
+    THEN the calculated distinct month denominator N_months should be <expected_n_months>
+    AND the baseline projection summary table should contain the calculated averages:
       | Category        | Historical Monthly Avg (AUD) | Historical Monthly Avg (HKD) | Historical Monthly Avg (USD) |
       | Groceries (AUD) | <expected_groceries_aud>    | 0.00                         | 0.00                         |
       | Groceries (USD) | 0.00                         | 0.00                         | <expected_groceries_usd>     |
       | Dining (HKD)    | 0.00                         | <expected_dining_hkd>        | 0.00                         |
-    And the UI warning badge display status should be "<expected_badge>"
+    AND the UI warning badge display status should be "<expected_badge>"
 
     Examples:
       | lookback_window    | outlier_threshold | expected_n_months | expected_groceries_aud | expected_groceries_usd | expected_dining_hkd | expected_badge                                           |
@@ -137,12 +137,12 @@ Feature: Historical Category Baseline Calculation
       | Trailing 3 Months  | 0.00              | 2                 | 775.00                 | 40.00                  | 250.00              | ⚠️ Partial history: Calculation based on 2 distinct month(s) |
       | Trailing 6 Months  | 1000.00           | 2                 | 175.00                 | 40.00                  | 250.00              | ⚠️ Partial history: Calculation based on 2 distinct month(s) |
 
-  Scenario: Zero transaction history handling in selected lookback window
-    Given an empty transaction ledger for the timeframe "Trailing 12 Months"
-    When the baseline computation engine aggregates transaction records
-    Then the global distinct month denominator N_months should default to 1
-    And all category historical monthly averages should evaluate to 0.00
-    And the UI should display the badge "ℹ️ No historical transactions found in selected window"
+  Scenario 2: Zero transaction history handling in selected lookback window
+    GIVEN an empty transaction ledger for the timeframe "Trailing 12 Months"
+    WHEN the baseline computation engine aggregates transaction records
+    THEN the global distinct month denominator N_months should default to 1
+    AND all category historical monthly averages should evaluate to 0.00
+    AND the UI should display the badge "ℹ️ No historical transactions found in selected window"
 ```
 
 ---
@@ -158,22 +158,22 @@ Feature: Historical Category Baseline Calculation
 Feature: AUD Outlier Suppression and Foreign Currency Isolation
 
   Background:
-    Given the database ledger contains the following multi-currency entries for "Trailing 3 Months":
+    GIVEN the database ledger contains the following multi-currency entries for "Trailing 3 Months":
       | Transaction ID | Date       | Category     | Currency | Amount   |
       | TXN-201        | 2023-11-01 | Travel (AUD) | AUD      | 1500.00  |
       | TXN-202        | 2023-11-05 | Travel (AUD) | AUD      | 300.00   |
       | TXN-203        | 2023-11-10 | Travel (HKD) | HKD      | 8000.00  |
       | TXN-204        | 2023-11-15 | Flights (AUD)| AUD      | -1200.00 |
 
-  Scenario Outline: AUD transaction filtering does not impact non-AUD records or refunds below absolute threshold
-    Given the transient AUD outlier threshold slider is set to <slider_threshold>
-    When baseline monthly averages are calculated for a total of 1 distinct month
-    Then line items should be included or suppressed resulting in baseline values:
+  Scenario Outline 1: AUD transaction filtering does not impact non-AUD records or refunds below absolute threshold
+    GIVEN the transient AUD outlier threshold slider is set to <slider_threshold>
+    WHEN baseline monthly averages are calculated for a total of 1 distinct month
+    THEN line items should be included or suppressed resulting in baseline values:
       | Category      | Historical Monthly Avg (AUD) | Historical Monthly Avg (HKD) |
       | Travel (AUD)  | <expected_travel_aud>        | 0.00                         |
       | Travel (HKD)  | 0.00                         | <expected_travel_hkd>        |
       | Flights (AUD) | <expected_flights_aud>       | 0.00                         |
-    And the presentation layer displays the notice "Transactions performed in AUD above the set threshold are excluded from projection calculations."
+    AND the presentation layer displays the notice "Transactions performed in AUD above the set threshold are excluded from projection calculations."
 
     Examples:
       | slider_threshold | expected_travel_aud | expected_travel_hkd | expected_flights_aud |
@@ -195,17 +195,17 @@ Feature: AUD Outlier Suppression and Foreign Currency Isolation
 Feature: Interactive Target Allocation and CSV Export
 
   Background:
-    Given calculated historical baseline averages for lookback window "Trailing 3 Months":
+    GIVEN calculated historical baseline averages for lookback window "Trailing 3 Months":
       | Category         | Historical Monthly Avg (AUD) | Historical Monthly Avg (HKD) | Historical Monthly Avg (USD) |
       | Utilities (AUD)  | 200.00                       | 0.00                         | 0.00                         |
       | Software (USD)   | 0.00                         | 0.00                         | 50.00                        |
-    And initial target monthly budgets default to their historical averages
+    AND initial target monthly budgets default to their historical averages
 
-  Scenario Outline: Target validation and negative value rejection
-    When the user inputs "<user_input>" into the Target Monthly Budget for "<target_category>"
-    Then the system validation output state should be "<validation_state>"
-    And the effective Target Monthly Budget for "<target_category>" should evaluate to <effective_target>
-    And the total projected monthly spend summary should update dynamically
+  Scenario Outline 1: Target validation and negative value rejection
+    WHEN the user inputs "<user_input>" into the Target Monthly Budget for "<target_category>"
+    THEN the system validation output state should be "<validation_state>"
+    AND the effective Target Monthly Budget for "<target_category>" should evaluate to <effective_target>
+    AND the total projected monthly spend summary should update dynamically
 
     Examples:
       | user_input | target_category  | validation_state | effective_target |
@@ -214,17 +214,17 @@ Feature: Interactive Target Allocation and CSV Export
       | -45.00     | Utilities (AUD)  | Invalid          | 0.00             |
       | abc        | Software (USD)   | Invalid          | 0.00             |
 
-  Scenario: Verify 7-column schema alignment and Total row append during CSV export
-    Given the finalized target budget allocations:
+  Scenario 2: Verify 7-column schema alignment and Total row append during CSV export
+    GIVEN the finalized target budget allocations:
       | Category        | Hist Avg (AUD) | Hist Avg (HKD) | Hist Avg (USD) | Target (AUD) | Target (HKD) | Target (USD) |
       | Groceries (AUD) | 300.00         | 0.00           | 0.00           | 350.00       | 0.00         | 0.00         |
       | Dining (HKD)    | 0.00           | 1500.00        | 0.00           | 0.00         | 1200.00      | 0.00         |
-    When the user triggers the Streamlit CSV export action
-    Then the generated CSV content must contain the exact headers:
+    WHEN the user triggers the Streamlit CSV export action
+    THEN the generated CSV content must contain the exact headers:
       """
       Category,Historical Monthly Avg (AUD),Historical Monthly Avg (HKD),Historical Monthly Avg (USD),Target Monthly Budget (AUD),Target Monthly Budget (HKD),Target Monthly Budget (USD)
       """
-    And the final row of the CSV file must match the computed total summary:
+    AND the final row of the CSV file must match the computed total summary:
       """
       Total,300.00,1500.00,0.00,350.00,1200.00,0.00
       """
