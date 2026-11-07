@@ -47,6 +47,9 @@ def confirm_merchant_mapping_dialog(
     new_cat_id: int,
 =======
     cat_id: int,
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 ) -> None:
     st.write(
@@ -62,8 +65,11 @@ def confirm_merchant_mapping_dialog(
         ):
             repo = DatabaseRepository(DB_PATH)
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
             repo.update_merchant_category(target_id, new_cat_id)
 =======
+=======
+>>>>>>> Stashed changes
             repo.update_merchant_category(target_id, cat_id)
 >>>>>>> Stashed changes
             st.rerun()
@@ -857,6 +863,9 @@ class PersonalExpenseTracker:
                             new_cat_id,
 =======
                             cat_id,
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
                         )
 
