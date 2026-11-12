@@ -1430,11 +1430,8 @@ class PersonalExpenseTracker:
 
     def render_budget_projection_page(self) -> None:
         st.markdown(
-            "Forward-looking budget planning engine to compute rolling spend baselines across multi-currency accounts (AUD, HKD, USD), suppress AUD transaction outliers, set target category allocations, and export summaries."
+            "Forward-looking budget planning engine to compute rolling spend baselines across multi-currency accounts (AUD, HKD, USD), suppress transaction outliers, set target category allocations, and export summaries."
         )
-
-        if "target_overrides" not in st.session_state:
-            st.session_state["target_overrides"] = {}
 
         # Row 1: Interactive Control Panel
         ctrl_col1, ctrl_col2 = st.columns(2)
@@ -1461,13 +1458,31 @@ class PersonalExpenseTracker:
                     key="budget_outlier_threshold_slider",
                 )
 
+        current_params = (lookback_window, outlier_threshold)
+        prev_params = st.session_state.get("budget_prev_params")
+
+        show_reset_notice = False
+        if prev_params is not None and prev_params != current_params:
+            show_reset_notice = True
+            st.session_state["budget_editor_counter"] = (
+                st.session_state.get("budget_editor_counter", 0) + 1
+            )
+
+        st.session_state["budget_prev_params"] = current_params
+
+        editor_counter = st.session_state.get("budget_editor_counter", 0)
+        editor_key = f"budget_editor_{editor_counter}"
+
+        # AUD Outlier Threshold Notice
         st.info("Transactions performed in AUD above the set threshold are excluded from projection calculations.")
 
-        # Compute Projection Baselines
+        if show_reset_notice:
+            st.info("Target budgets re-initialized to historical baselines.")
+
+        # Compute Baseline Projections
         proj_data = self.repo.get_budget_projections(
             lookback_window=lookback_window,
             outlier_threshold_aud=outlier_threshold,
-            target_overrides=st.session_state["target_overrides"],
         )
 
         badge_msg = proj_data.get("badge_message", "")
@@ -1478,89 +1493,49 @@ class PersonalExpenseTracker:
                 st.info(badge_msg)
 
         base_df = proj_data["df"]
+        summary_df = DatabaseRepository.add_total_summary_row(base_df)
 
-        st.write("")
+        invalid_input_detected = False
+        target_cols = [
+            "Target Monthly Budget (AUD)",
+            "Target Monthly Budget (HKD)",
+            "Target Monthly Budget (USD)",
+        ]
 
-        # Row 2: Target Allocation Overrides Container
-        if not base_df.empty:
-            with st.expander("Target Monthly Budget Allocations (Overrides)", expanded=True):
-                st.markdown(
-                    "Specify target monthly allocations per category. Target budget inputs must be >= 0.00."
-                )
+        if editor_key in st.session_state:
+            editor_state = st.session_state[editor_key]
+            if isinstance(editor_state, dict) and "edited_rows" in editor_state:
+                edited_rows = editor_state["edited_rows"]
+                for row_idx, changes in edited_rows.items():
+                    if row_idx < len(summary_df) and summary_df.at[row_idx, "Category"] != "Total":
+                        for col_name, val in changes.items():
+                            if col_name in target_cols:
+                                try:
+                                    float_val = float(val)
+                                    if float_val < 0.0:
+                                        invalid_input_detected = True
+                                        float_val = 0.0
+                                    summary_df.at[row_idx, col_name] = float_val
+                                except (ValueError, TypeError):
+                                    invalid_input_detected = True
+                                    summary_df.at[row_idx, col_name] = 0.0
 
-                for idx, row in base_df.iterrows():
-                    cat_label = str(row["Category"])
-                    if cat_label == "Total":
-                        continue
+                category_df = summary_df[summary_df["Category"] != "Total"]
+                total_idx = summary_df[summary_df["Category"] == "Total"].index
+                if not total_idx.empty:
+                    t_idx = total_idx[0]
+                    num_cols = [c for c in summary_df.columns if c != "Category"]
+                    for c in num_cols:
+                        summary_df.at[t_idx, c] = round(float(category_df[c].sum()), 2)
 
-                    # Determine associated currency column
-                    if "(AUD)" in cat_label:
-                        curr_col = "Target Monthly Budget (AUD)"
-                        curr_code = "AUD"
-                    elif "(HKD)" in cat_label:
-                        curr_col = "Target Monthly Budget (HKD)"
-                        curr_code = "HKD"
-                    elif "(USD)" in cat_label:
-                        curr_col = "Target Monthly Budget (USD)"
-                        curr_code = "USD"
-                    else:
-                        curr_col = "Target Monthly Budget (AUD)"
-                        curr_code = "AUD"
-
-                    current_val = float(row[curr_col])
-
-                    in_col1, in_col2 = st.columns([3, 2])
-
-                    with in_col1:
-                        st.markdown(f"**{cat_label}**")
-
-                    with in_col2:
-                        input_key = f"target_input_{cat_label}"
-                        val_input = st.text_input(
-                            f"Target Budget ({curr_code})",
-                            value=f"{current_val:.2f}",
-                            key=input_key,
-                        )
-
-                        clean_val_str = str(val_input).strip()
-                        is_valid = False
-                        parsed_val = 0.00
-
-                        try:
-                            parsed_val = float(clean_val_str)
-                            if parsed_val >= 0.00:
-                                is_valid = True
-                        except ValueError:
-                            is_valid = False
-
-                        if not is_valid:
-                            st.error("Target budget must be >= 0.00")
-                            effective_val = 0.00
-                        else:
-                            effective_val = parsed_val
-
-                        if cat_label not in st.session_state["target_overrides"]:
-                            st.session_state["target_overrides"][cat_label] = {}
-
-                        if st.session_state["target_overrides"][cat_label].get(curr_col) != effective_val:
-                            st.session_state["target_overrides"][cat_label][curr_col] = effective_val
-                            st.rerun()
-
-        # Re-fetch projections with validated target overrides
-        final_proj_data = self.repo.get_budget_projections(
-            lookback_window=lookback_window,
-            outlier_threshold_aud=outlier_threshold,
-            target_overrides=st.session_state["target_overrides"],
-        )
-
-        df_final = final_proj_data["df"]
-        summary_df = DatabaseRepository.add_total_summary_row(df_final)
+        if invalid_input_detected:
+            st.error("Target budget must be >= 0.00")
 
         total_row = summary_df[summary_df["Category"] == "Total"].iloc[0]
 
         st.write("")
 
-        # Row 3: KPI Projection Summary Cards
+        # Row 2: KPI Projection Summary Cards
         kpi_col1, kpi_col2, kpi_col3 = st.columns(3)
 
         with kpi_col1:
@@ -1595,7 +1570,7 @@ class PersonalExpenseTracker:
 
         st.write("")
 
-        # Row 4: Summary Data Table & CSV Export
+        # Row 3: Interactive Projection Summary Data Table (`st.data_editor`) & Export
         with st.container(border=True):
             st.subheader("Budget Projection Summary")
 
@@ -1611,21 +1586,31 @@ class PersonalExpenseTracker:
                     "Historical Monthly Avg (USD)", format="$%.2f"
                 ),
                 "Target Monthly Budget (AUD)": st.column_config.NumberColumn(
-                    "Target Monthly Budget (AUD)", format="$%.2f"
+                    "Target Monthly Budget (AUD)", format="$%.2f", min_value=0.0, step=10.0
                 ),
                 "Target Monthly Budget (HKD)": st.column_config.NumberColumn(
-                    "Target Monthly Budget (HKD)", format="$%.2f"
+                    "Target Monthly Budget (HKD)", format="$%.2f", min_value=0.0, step=10.0
                 ),
                 "Target Monthly Budget (USD)": st.column_config.NumberColumn(
-                    "Target Monthly Budget (USD)", format="$%.2f"
+                    "Target Monthly Budget (USD)", format="$%.2f", min_value=0.0, step=10.0
                 ),
             }
 
-            st.dataframe(
+            disabled_cols = [
+                "Category",
+                "Historical Monthly Avg (AUD)",
+                "Historical Monthly Avg (HKD)",
+                "Historical Monthly Avg (USD)",
+            ]
+
+            st.data_editor(
                 summary_df,
                 column_config=column_config,
-                use_container_width=True,
+                disabled=disabled_cols,
                 hide_index=True,
+                num_rows="fixed",
+                use_container_width=True,
+                key=editor_key,
             )
 
             csv_bytes = summary_df.to_csv(index=False).encode("utf-8")
