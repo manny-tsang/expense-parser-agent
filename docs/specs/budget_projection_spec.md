@@ -41,12 +41,13 @@
    - Inversely, to be perfectly clear, if transactions for a specific category are all in a single currency, then there should only be one row for that category and the totals for columns that are not of that currency, should be set to `0.00`.
 2. **Inline Table Target Adjustments (`st.data_editor`)**:
    - Eliminate any separate "Overrides" section or `st.expander` widget; all target budget edits MUST occur directly inline within the **Budget Projection Summary** table (`st.data_editor`).
+   - Pass ONLY the active category rows (`base_df`, excluding the `Total` row) into `st.data_editor`, and capture its returned DataFrame (`edited_df`) directly to compute live totals.
    - Columns 1–4 (`Category` and `Historical Monthly Avg (AUD/HKD/USD)`) MUST be configured as read-only (`disabled=True`).
    - Columns 5–7 (`Target Monthly Budget (AUD)`, `Target Monthly Budget (HKD)`, `Target Monthly Budget (USD)`) MUST be editable inline via `st.column_config.NumberColumn(format="$%.2f", min_value=0.0, step=10.0)`.
-   - The `Total` summary row MUST be dynamically calculated from the edited category rows in real time and rendered immediately below (or as a locked read-only bottom row excluded from inline editing) so both the `Total` row and top KPI cards update instantaneously upon any cell edit.
-   - Inputs must be non-negative real numbers. If a user enters a negative value or invalid text, the UI displays an inline validation error (`"Target budget must be >= 0.00"`) and reverts the target cell to `0.00`.
+   - Render the dynamically calculated `Total` summary row as a separate, read-only 1-row `st.dataframe` pinned directly beneath `st.data_editor` so users cannot edit the `Total` row while both the `Total` row and top KPI cards update instantaneously upon any cell edit.
+   - Inputs must be non-negative real numbers. If a user enters a negative value or `NaN`/empty cell, replace `NaN`/negative values in `edited_df` with `0.00` and display an inline validation error (`"Target budget must be >= 0.00"`).
    - Explicit input of `0.00` is valid and indicates an intentional phase-out for that category target.
-   - Automatically reset all `Target Monthly Budget` values to match the newly computed `Historical Monthly Avg` baselines whenever the Lookback Window or Outlier Threshold slider is modified, displaying an inline session notification informing the user that targets were re-initialized.
+   - Automatically reset all `Target Monthly Budget` values to match the newly computed `Historical Monthly Avg` baselines whenever the Lookback Window or Outlier Threshold slider is modified (by incrementing the `st.data_editor` widget key), displaying an inline session notification informing the user that targets were re-initialized.
 3. **Summary Aggregation**:
    - The system calculates independent live totals for Total Projected Monthly Spend (AUD), Total Projected Monthly Spend (HKD), and Total Projected Monthly Spend (USD).
 
@@ -66,11 +67,11 @@
 - Include the `Total` row when exporting the table to CSV.
 
 ### 3.3.2 Streamlit Rendering & Export Options
-1. **Component**: Rendered via `st.data_editor` (with `hide_index=True`, `num_rows="fixed"`), disabling editing on `Category` and all `Historical Monthly Avg` columns while enabling inline numeric cell editing on `Target Monthly Budget (AUD)`, `Target Monthly Budget (HKD)`, and `Target Monthly Budget (USD)`.
-2. **Real-Time Total & KPI Sync**: Any inline edit in `st.data_editor` immediately recalculates the read-only `Total` summary row and updates the three top KPI summary cards (`Total Projected Monthly Spend (AUD/HKD/USD)`) without requiring a separate "Apply" button or expander section.
+1. **Component**: Active category rows are rendered via `st.data_editor` (with `hide_index=True`, `num_rows="fixed"`), disabling editing on `Category` and all `Historical Monthly Avg` columns while enabling inline numeric cell editing on `Target Monthly Budget (AUD)`, `Target Monthly Budget (HKD)`, and `Target Monthly Budget (USD)`.
+2. **Locked Total Row & Real-Time KPI Sync**: Compute `summary_df = DatabaseRepository.add_total_summary_row(edited_df)` from the DataFrame returned by `st.data_editor`. Render the `Total` row in a locked read-only `st.dataframe` immediately below the editor and update the three top KPI summary cards (`Total Projected Monthly Spend (AUD/HKD/USD)`) in real time.
 3. **Numeric Types**: Underlying pandas DataFrame columns maintain native `float64` numeric types to 2 decimal places to ensure raw CSV exports contain unformatted floats.
-4. **Visual Column Configuration**: UI rendering uses `st.column_config.NumberColumn` configured with `format="$%.2f"` (and `min_value=0.0` enforced on Target columns).
-5. **Export Interoperability**: Utilizes native Streamlit CSV download (`st.download_button`) exporting the live edited category rows plus the updated `Total` row with exact column headers.
+4. **Visual Column Configuration**: UI rendering uses `st.column_config.NumberColumn(format="$%.2f")` (and `min_value=0.0` enforced on Target columns).
+5. **Export Interoperability**: Utilizes native Streamlit CSV download (`st.download_button`) exporting `summary_df` (containing all live edited category rows plus the updated `Total` row) with exact column headers.
 
 ## 4. User Stories & BDD Acceptance Criteria
 
