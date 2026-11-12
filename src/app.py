@@ -43,14 +43,7 @@ def confirm_merchant_mapping_dialog(
     current_cat_name: str,
     selected_new_cat: str,
     target_id: Any,
-<<<<<<< Updated upstream
-    new_cat_id: int,
-=======
     cat_id: int,
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
 ) -> None:
     st.write(
         f"Please confirm that all transactions for '{selected_merchant}' are to be updated from '{current_cat_name}' to '{selected_new_cat}'?"
@@ -64,14 +57,7 @@ def confirm_merchant_mapping_dialog(
             "Save", type="primary", use_container_width=True, key="dialog_save_global"
         ):
             repo = DatabaseRepository(DB_PATH)
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-            repo.update_merchant_category(target_id, new_cat_id)
-=======
-=======
->>>>>>> Stashed changes
             repo.update_merchant_category(target_id, cat_id)
->>>>>>> Stashed changes
             st.rerun()
 
 
@@ -273,8 +259,8 @@ class PersonalExpenseTracker:
                     unsafe_allow_html=True,
                 )
 
-            options = ["Home", "Upload", "Categorise", "Charts", "Search"]
-            icons = ["house", "cloud-upload", "tag", "bar-chart", "search"]
+            options = ["Home", "Upload", "Categorise", "Charts", "Search", "Budget Projection"]
+            icons = ["house", "cloud-upload", "tag", "bar-chart", "search", "calculator"]
 
             current_nav = st.session_state.get("nav_page", "Home")
             default_index = options.index(current_nav) if current_nav in options else 0
@@ -859,76 +845,11 @@ class PersonalExpenseTracker:
                             current_merchant_cat,
                             selected_category,
                             target_id,
-<<<<<<< Updated upstream
                             new_cat_id,
-=======
-                            cat_id,
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
                         )
 
         st.write("")
 
-<<<<<<< Updated upstream
-=======
-                selected_tx_id = st.selectbox(
-                    "Transaction",
-                    options=tx_ids,
-                    format_func=lambda tx_id: tx_display_map.get(
-                        tx_id, "Select a transaction"
-                    ),
-                    key="selected_tx_dropdown",
-                )
-
-                subcol1, subcol2 = st.columns(2)
-
-                with subcol1:
-                    st.text_input(
-                        "Current category",
-                        value=tx_cat_map.get(selected_tx_id, ""),
-                        disabled=True,
-                        key=f"current_cat_display_{selected_tx_id}",
-                    )
-
-                with subcol2:
-                    selected_new_cat = st.selectbox(
-                        "New category",
-                        options=["Select a category"] + category_list,
-                        key="tx_cat_select",
-                    )
-
-                update_tx_btn = st.button(
-                    "Update transaction category",
-                    type="primary",
-                    key="update_tx_category",
-                )
-
-                if update_tx_btn:
-                    current_cat_name = tx_cat_map.get(selected_tx_id, "")
-                    if (
-                        selected_tx_id is None
-                        or selected_new_cat == "Select a category"
-                    ):
-                        st.error(
-                            "Please select both a transaction and a new category before updating."
-                        )
-                    elif selected_new_cat == current_cat_name:
-                        st.error(
-                            "'Current category' and 'New category' must not be the same."
-                        )
-                    else:
-                        new_c_id = cat_name_to_id.get(selected_new_cat, 1)
-                        confirm_tx_category_dialog(
-                            current_cat_name,
-                            selected_new_cat,
-                            int(selected_tx_id),
-                            new_c_id,
-                        )
-
-        # Row 2: Full Width - Uncategorised merchants
->>>>>>> Stashed changes
         st.subheader("Uncategorised merchants")
         st.markdown(
             "List of merchants currently assigned to 'Uncategorised' requiring mapping."
@@ -1507,6 +1428,217 @@ class PersonalExpenseTracker:
                                 new_fx=new_fx,
                             )
 
+    def render_budget_projection_page(self) -> None:
+        st.markdown(
+            "Forward-looking budget planning engine to compute rolling spend baselines across multi-currency accounts (AUD, HKD, USD), suppress AUD transaction outliers, set target category allocations, and export summaries."
+        )
+
+        if "target_overrides" not in st.session_state:
+            st.session_state["target_overrides"] = {}
+
+        # Row 1: Interactive Control Panel
+        ctrl_col1, ctrl_col2 = st.columns(2)
+
+        with ctrl_col1:
+            with st.container(border=True):
+                st.subheader("Historical lookback window")
+                lookback_window = st.selectbox(
+                    "Select timeframe",
+                    options=["Trailing 3 Months", "Trailing 6 Months", "Trailing 12 Months"],
+                    index=0,
+                    key="budget_lookback_window_select",
+                )
+
+        with ctrl_col2:
+            with st.container(border=True):
+                st.subheader("Outlier suppression threshold")
+                outlier_threshold = st.slider(
+                    "AUD Outlier Threshold ($)",
+                    min_value=0.0,
+                    max_value=100000.0,
+                    value=1000.0,
+                    step=50.0,
+                    key="budget_outlier_threshold_slider",
+                )
+
+        st.info("Transactions performed in AUD above the set threshold are excluded from projection calculations.")
+
+        # Compute Projection Baselines
+        proj_data = self.repo.get_budget_projections(
+            lookback_window=lookback_window,
+            outlier_threshold_aud=outlier_threshold,
+            target_overrides=st.session_state["target_overrides"],
+        )
+
+        badge_msg = proj_data.get("badge_message", "")
+        if badge_msg:
+            if badge_msg.startswith("⚠️"):
+                st.warning(badge_msg)
+            else:
+                st.info(badge_msg)
+
+        base_df = proj_data["df"]
+
+        st.write("")
+
+        # Row 2: Target Allocation Overrides Container
+        if not base_df.empty:
+            with st.expander("Target Monthly Budget Allocations (Overrides)", expanded=True):
+                st.markdown(
+                    "Specify target monthly allocations per category. Target budget inputs must be >= 0.00."
+                )
+
+                for idx, row in base_df.iterrows():
+                    cat_label = str(row["Category"])
+                    if cat_label == "Total":
+                        continue
+
+                    # Determine associated currency column
+                    if "(AUD)" in cat_label:
+                        curr_col = "Target Monthly Budget (AUD)"
+                        curr_code = "AUD"
+                    elif "(HKD)" in cat_label:
+                        curr_col = "Target Monthly Budget (HKD)"
+                        curr_code = "HKD"
+                    elif "(USD)" in cat_label:
+                        curr_col = "Target Monthly Budget (USD)"
+                        curr_code = "USD"
+                    else:
+                        curr_col = "Target Monthly Budget (AUD)"
+                        curr_code = "AUD"
+
+                    current_val = float(row[curr_col])
+
+                    in_col1, in_col2 = st.columns([3, 2])
+
+                    with in_col1:
+                        st.markdown(f"**{cat_label}**")
+
+                    with in_col2:
+                        input_key = f"target_input_{cat_label}"
+                        val_input = st.text_input(
+                            f"Target Budget ({curr_code})",
+                            value=f"{current_val:.2f}",
+                            key=input_key,
+                        )
+
+                        clean_val_str = str(val_input).strip()
+                        is_valid = False
+                        parsed_val = 0.00
+
+                        try:
+                            parsed_val = float(clean_val_str)
+                            if parsed_val >= 0.00:
+                                is_valid = True
+                        except ValueError:
+                            is_valid = False
+
+                        if not is_valid:
+                            st.error("Target budget must be >= 0.00")
+                            effective_val = 0.00
+                        else:
+                            effective_val = parsed_val
+
+                        if cat_label not in st.session_state["target_overrides"]:
+                            st.session_state["target_overrides"][cat_label] = {}
+
+                        if st.session_state["target_overrides"][cat_label].get(curr_col) != effective_val:
+                            st.session_state["target_overrides"][cat_label][curr_col] = effective_val
+                            st.rerun()
+
+        # Re-fetch projections with validated target overrides
+        final_proj_data = self.repo.get_budget_projections(
+            lookback_window=lookback_window,
+            outlier_threshold_aud=outlier_threshold,
+            target_overrides=st.session_state["target_overrides"],
+        )
+
+        df_final = final_proj_data["df"]
+        summary_df = DatabaseRepository.add_total_summary_row(df_final)
+
+        total_row = summary_df[summary_df["Category"] == "Total"].iloc[0]
+
+        st.write("")
+
+        # Row 3: KPI Projection Summary Cards
+        kpi_col1, kpi_col2, kpi_col3 = st.columns(3)
+
+        with kpi_col1:
+            with st.container(border=True):
+                st.subheader("Total Projected Monthly Spend (AUD)")
+                st.markdown(
+                    f"""<div class="metric-card-container">
+                        <div class="metric-large">${float(total_row['Target Monthly Budget (AUD)']):,.2f}</div>
+                    </div>""",
+                    unsafe_allow_html=True,
+                )
+
+        with kpi_col2:
+            with st.container(border=True):
+                st.subheader("Total Projected Monthly Spend (HKD)")
+                st.markdown(
+                    f"""<div class="metric-card-container">
+                        <div class="metric-large">${float(total_row['Target Monthly Budget (HKD)']):,.2f}</div>
+                    </div>""",
+                    unsafe_allow_html=True,
+                )
+
+        with kpi_col3:
+            with st.container(border=True):
+                st.subheader("Total Projected Monthly Spend (USD)")
+                st.markdown(
+                    f"""<div class="metric-card-container">
+                        <div class="metric-large">${float(total_row['Target Monthly Budget (USD)']):,.2f}</div>
+                    </div>""",
+                    unsafe_allow_html=True,
+                )
+
+        st.write("")
+
+        # Row 4: Summary Data Table & CSV Export
+        with st.container(border=True):
+            st.subheader("Budget Projection Summary")
+
+            column_config = {
+                "Category": st.column_config.TextColumn("Category"),
+                "Historical Monthly Avg (AUD)": st.column_config.NumberColumn(
+                    "Historical Monthly Avg (AUD)", format="$%.2f"
+                ),
+                "Historical Monthly Avg (HKD)": st.column_config.NumberColumn(
+                    "Historical Monthly Avg (HKD)", format="$%.2f"
+                ),
+                "Historical Monthly Avg (USD)": st.column_config.NumberColumn(
+                    "Historical Monthly Avg (USD)", format="$%.2f"
+                ),
+                "Target Monthly Budget (AUD)": st.column_config.NumberColumn(
+                    "Target Monthly Budget (AUD)", format="$%.2f"
+                ),
+                "Target Monthly Budget (HKD)": st.column_config.NumberColumn(
+                    "Target Monthly Budget (HKD)", format="$%.2f"
+                ),
+                "Target Monthly Budget (USD)": st.column_config.NumberColumn(
+                    "Target Monthly Budget (USD)", format="$%.2f"
+                ),
+            }
+
+            st.dataframe(
+                summary_df,
+                column_config=column_config,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            csv_bytes = summary_df.to_csv(index=False).encode("utf-8")
+
+            st.download_button(
+                label="Download Budget Summary CSV",
+                data=csv_bytes,
+                file_name="budget_projection_summary.csv",
+                mime="text/csv",
+                type="primary",
+                key="download_budget_summary_csv",
+            )
+
     def run(self) -> None:
         st.set_page_config(
             page_title="Personal Expense Tracker",
@@ -1528,6 +1660,8 @@ class PersonalExpenseTracker:
             self.render_charts_page()
         elif selected == "Search":
             self.render_search_page()
+        elif selected == "Budget Projection":
+            self.render_budget_projection_page()
 
 
 if __name__ == "__main__":
