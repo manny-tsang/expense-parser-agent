@@ -2,6 +2,8 @@ import argparse
 import json
 import os
 import re
+from typing import Any, Dict, Optional, Tuple
+
 import requests
 from dotenv import load_dotenv
 
@@ -16,12 +18,15 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 
 PROJECT_KEY = "PET"
 
-# Safety checks
+# Safety checks: validate required credentials
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY is missing or empty in your .env file!")
 
-if not JIRA_USER_EMAIL or not JIRA_API_TOKEN:
-    raise ValueError("JIRA_USER_EMAIL and JIRA_API_TOKEN must be set in your .env file!")
+if not JIRA_USER_EMAIL:
+    raise ValueError("JIRA_USER_EMAIL is missing or empty in your .env file!")
+
+if not JIRA_API_TOKEN:
+    raise ValueError("JIRA_API_TOKEN is missing or empty in your .env file!")
 
 if not JIRA_BASE_URL:
     raise ValueError("JIRA_BASE_URL is missing or empty in your .env file!")
@@ -33,12 +38,13 @@ from google import genai
 from google.genai import types
 
 
-def get_jira_auth():
+def get_jira_auth() -> Tuple[str, str]:
     """Return Basic Auth tuple for Jira REST API calls."""
     return (JIRA_USER_EMAIL, JIRA_API_TOKEN)
 
 
-def get_jira_headers():
+def get_jira_headers() -> Dict[str, str]:
+    """Return common HTTP headers for Jira REST API v3 requests."""
     return {
         "Accept": "application/json",
         "Content-Type": "application/json"
@@ -48,7 +54,7 @@ def get_jira_headers():
 # =========================================================================
 # STEP 1: GEMINI SPEC PARSER
 # =========================================================================
-def parse_spec_with_gemini(spec_content: str) -> dict:
+def parse_spec_with_gemini(spec_content: str) -> Dict[str, Any]:
     """Pass specification document to Gemini to extract structured Epic and Story objects."""
     client = genai.Client(api_key=GEMINI_API_KEY)
 
@@ -61,10 +67,26 @@ def parse_spec_with_gemini(spec_content: str) -> dict:
     \"\"\"
 
     CRITICAL RULES FOR EPICS vs STORIES:
-    1. Look closely at the "Epic Mapping" or "Target Epic" section in the spec.
-    2. If the spec references existing Jira Epic Keys (e.g., "PET-4", "PET-7", "PET-3"), DO NOT include them in "new_epics". They ALREADY exist in Jira!
-    3. Include entries in "new_epics" ONLY if the spec explicitly defines a BRAND NEW Epic that does not have an assigned Jira key (e.g., "PET-X").
-    4. For every story, "target_epic_key_or_name" MUST be the exact Jira Epic key (e.g., "PET-7" or "PET-4") if specified in the text.
+    1. Inspect the specification for existing Jira Epic Keys matching the pattern "PET-[0-9]+" (e.g., "PET-4", "PET-7").
+    2. Existing Epic keys (e.g., "PET-4", "PET-7") MUST NOT be added to "new_epics" because they ALREADY exist in Jira!
+    3. Include entries in "new_epics" ONLY if the specification explicitly defines a BRAND NEW Epic that does not have an assigned Jira key.
+    4. For every story, "target_epic_key_or_name" MUST be either the exact existing Jira Epic key (e.g., "PET-7") or the newly defined Epic summary.
+
+    COMPOSABLE STORY COMPONENT PREFIX RULES:
+    Every story "title" MUST begin with a bracketed component tag composed of applicable stack layers in canonical order (UI -> PY -> DB), separated by " | " with single outer padding spaces inside brackets:
+    - UI: Streamlit presentation components, layouts, CSS styling, user input controls, charts, or UI state/formatting residing in src/app.py.
+    - PY: Python business logic, calculations, input validation, PDF parsing, CLI runners, or data transformations (e.g., src/pdf_parser.py, spec_refiner.py, or Python processing within src/app.py / src/repository.py).
+    - DB: SQLite schema changes, DDL/DML SQL queries, database aggregations, or persistence contracts residing in src/repository.py (DatabaseRepository).
+
+    Composition Rules:
+    - Tags are NOT mutually exclusive. Combine all layers touched by the story's acceptance criteria using " | " inside square brackets in strict canonical order: UI -> PY -> DB.
+    - Examples:
+      - "[ UI ] Story Title"
+      - "[ PY ] Story Title"
+      - "[ DB ] Story Title"
+      - "[ UI | PY ] Story Title"
+      - "[ PY | DB ] Story Title"
+      - "[ UI | PY | DB ] Story Title"
 
     Strict JSON Schema Output Format:
     {{
@@ -95,7 +117,8 @@ def parse_spec_with_gemini(spec_content: str) -> dict:
     )
 
     clean_text = response.text.strip()
-    clean_text = re.sub(r'^```json\s*', '', clean_text)
+    clean_text = re.sub(r'^```json\s*', '', clean_text, flags=re.IGNORECASE)
+    clean_text = re.sub(r'^```\s*', '', clean_text)
     clean_text = re.sub(r'\s*```$', '', clean_text)
 
     return json.loads(clean_text)
@@ -104,10 +127,15 @@ def parse_spec_with_gemini(spec_content: str) -> dict:
 # =========================================================================
 # STEP 2: JIRA REST API HELPERS
 # =========================================================================
-def create_jira_issue(summary: str, description: str, issue_type: str, parent_key: str = None) -> dict:
+def create_jira_issue(
+    summary: str,
+    description: str,
+    issue_type: str,
+    parent_key: Optional[str] = None
+) -> Dict[str, Any]:
     """Create an Issue (Epic or Story) in Jira via v3 REST API."""
     url = f"{JIRA_BASE_URL}/rest/api/3/issue"
-    
+
     adf_description = {
         "type": "doc",
         "version": 1,
@@ -124,7 +152,7 @@ def create_jira_issue(summary: str, description: str, issue_type: str, parent_ke
         ]
     }
 
-    payload = {
+    payload: Dict[str, Any] = {
         "fields": {
             "project": {"key": PROJECT_KEY},
             "summary": summary,
@@ -150,9 +178,9 @@ def create_jira_issue(summary: str, description: str, issue_type: str, parent_ke
 
 
 def transition_jira_issue(issue_key: str, transition_name_keyword: str = "define") -> bool:
-    """Transition a Jira issue status matching a transition name keyword (e.g. 'design', 'defining')."""
+    """Transition a Jira issue status matching a transition name keyword (e.g. 'design', 'define')."""
     transitions_url = f"{JIRA_BASE_URL}/rest/api/3/issue/{issue_key}/transitions"
-    
+
     res = requests.get(transitions_url, auth=get_jira_auth(), headers=get_jira_headers())
     if res.status_code != 200:
         print(f"  └─ Warning: Could not fetch transitions for {issue_key}")
@@ -184,13 +212,13 @@ def transition_jira_issue(issue_key: str, transition_name_keyword: str = "define
 # =========================================================================
 # MAIN EXECUTION FLOW
 # =========================================================================
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Jira Spec Automation Runner")
     parser.add_argument(
         "--spec",
         type=str,
         required=True,
-        help="Path to the specification markdown file (e.g., docs/specs/ui_charts_spec.md)"
+        help="Path to the specification markdown file (e.g., docs/specs/budget_projection_spec.refined.md)"
     )
     parser.add_argument(
         "--dry-run",
@@ -226,13 +254,13 @@ def main():
         print("Dry run complete. No tickets were created in Jira.")
         return
 
-    created_epics = {}
+    created_epics: Dict[str, str] = {}
 
     # 1. Create New Epics (with safety check against existing PET keys)
     for epic in structured_data.get("new_epics", []):
         summary = epic["summary"]
-        
-        # Guardrail: Never re-create an Epic if its title/summary matches an existing key (e.g. PET-4 or PET-7)
+
+        # Guardrail: Never re-create an Epic if its title/summary matches an existing key pattern (PET-[0-9]+)
         if re.search(r'PET-[0-9]+', summary, re.IGNORECASE):
             print(f"Skipping Epic creation for '{summary}' — matches existing Epic Key pattern.")
             continue
@@ -250,7 +278,7 @@ def main():
     # 2. Create Stories under respective Parents & Transition Status
     for story in structured_data.get("stories", []):
         target_epic = story["target_epic_key_or_name"]
-        
+
         # If target_epic is already an existing key (e.g., PET-7), use it directly. Otherwise use newly created key.
         parent_key = created_epics.get(target_epic, target_epic)
 
@@ -264,7 +292,7 @@ def main():
         story_key = res["key"]
         print(f"  └─ Created Story {story_key}")
 
-        # Transition Story status (e.g., 'design' or 'defining')
+        # Transition Story status (e.g., 'design' or 'define')
         transition_jira_issue(story_key, transition_name_keyword="define")
 
     print("\nAll Jira tickets created successfully!")
