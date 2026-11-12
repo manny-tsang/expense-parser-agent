@@ -3,9 +3,9 @@
 ## 1. System Overview, Core Objective & AI Orchestration Workflow
 
 ### 1.1 Core Objective & Learning Philosophy
-The primary objective of this project is to master and execute **Spec-Driven Development (SDD)** and **AI-Orchestrated Software Engineering**. 
+The primary objective of this project is to master and execute **Spec-Driven Development (SDD)** and **AI-Orchestrated Software Engineering**  
 
-The Personal Expense Tracker (PET) application serves as the production domain—extracting, cleaning, anonymizing, categorizing, and visualizing dual-currency credit card PDF statements (HKD/AUD) into SQLite. However, the governing engineering principle is that **AI agents generate code and Jira backlog artifacts strictly from human-governed Markdown specifications**.
+The Personal Expense Tracker (PET) application serves as the production domain—extracting, cleaning, anonymizing, categorizing, and visualizing dual-currency credit card PDF statements (HKD/AUD) into SQLite  However, the governing engineering principle is that **AI agents generate code and Jira backlog artifacts strictly from human-governed Markdown specifications** 
 
 ---
 
@@ -13,6 +13,7 @@ The Personal Expense Tracker (PET) application serves as the production domain�
 
 All software engineering lifecycle activities MUST follow this 5-step orchestration pipeline:
 
+```text
 [ Step 1: Human Specification ]
               │
               ▼
@@ -39,109 +40,120 @@ python3 jira_agent_runner.py              python3 agent_runner.py
 [ Step 5: Git & Local Sync ]
 ├── Automated Commit to GitHub Main Branch
 └── Local VS Code Pull & Streamlit Validation
+```
 
 1. **Step 1 — Requirements & Specification Drafting**:
-   - Human developer and AI draft, iterate, and finalize formal Markdown specification files in `docs/specs/` (e.g., `database_repository_spec.md`, `budget_projection_spec.md`).
-   - Specifications explicitly establish acceptance criteria (BDD GIVEN/WHEN/THEN), module boundaries, database schemas, and interface contracts.
+   - Human developer and AI draft, iterate, and finalize formal Markdown specification files in `docs/specs/` (e.g., `database_repository_spec.md`, `budget_projection_spec.md`) 
+   - Specifications explicitly establish acceptance criteria (BDD GIVEN/WHEN/THEN), module boundaries, database schemas, and interface contracts
 
 2. **Step 2 — Automated Quality Gate & Spec Refinement (`spec_refiner.py`)**:
-   - The raw markdown specification is passed into `spec_refiner.py`.
-   - The refiner invokes `gemini-3.6-flash` via the Google GenAI SDK using exponential backoff retry loops (`max_retries=5`) to absorb 503 high-demand spikes.
-   - **Quality Gate Rules**: Enforces Definition of Ready (DoR) standards, expands edge cases, isolates concrete data into Gherkin `Examples:` tables, and highlights unstated assumptions in `## 0. Questions & Clarification Needed for Human Sign-Off`.
-   - **Iteration Bounding & Overflow Rule**: Refinement is strictly capped at a **maximum of 3 iteration passes**. Critical architectural assumptions are resolved in Section 3 business rules, while non-blocking edge cases remaining after Pass 3 automatically overflow into `## 5. Deferred Questions & Backlog Candidate Items` to prevent infinite clarification loops and clear DoR.
-   - Outputs a staging file strictly labeled as `[name].refined.md` while keeping the source `[name].md` untouched.
+   - The raw markdown specification is passed into `spec_refiner.py` .
+   - The refiner invokes `gemini-3.6-flash` via the Google GenAI SDK using exponential backoff retry loops (`max_retries=5`) to absorb 503 high-demand spikes .
+   - **Quality Gate Rules**: Enforces Definition of Ready (DoR) standards, expands edge cases, isolates concrete data into Gherkin `Examples:` tables, and highlights unstated assumptions in `## 0. Questions & Clarification Needed for Human Sign-Off` .
+   - **Iteration Bounding & Overflow Rule**: Refinement is strictly capped at a **maximum of 3 iteration passes** . Critical architectural assumptions are resolved in Section 3 business rules, while non-blocking edge cases remaining after Pass 3 automatically overflow into `## 5. Deferred Questions & Backlog Candidate Items` to prevent infinite clarification loops and clear DoR.
+   - Outputs a staging file strictly labeled as `[name].refined.md` while keeping the source `[name].md` untouched .
    
 3. **Step 3 — Backlog Generation & Jira Orchestration (`jira_agent_runner.py`)**:
    - The refined markdown spec (`[name].refined.md`) is passed into `jira_agent_runner.py`.
-   - The runner uses the Gemini API (`gemini-3.6-flash`) to parse structured Epics and BDD User Stories out of the refined text.
-   - The runner invokes Atlassian Jira REST API v3 to automatically create the Epic and child Story issues in Jira under project key `PET` and set initial workflow states.
+   - The runner uses the Gemini API (`gemini-3.6-flash`) to parse structured Epics and BDD User Stories out of the refined text with composable component tags (`[ UI | PY | DB ]`).
+   - The runner invokes Atlassian Jira REST API v3 to automatically create the Epic and child Story issues in Jira under project key `PET` and set initial workflow states (`IN DESIGN`).
 
 4. **Step 4 — Spec-Driven Code Generation (`agent_runner.py`)**:
-   - The refined markdown spec (along with optional context files) is passed to `agent_runner.py`.
-   - The runner initializes Gemini API with strict role guidance (e.g., Streamlit UI vs. Backend Python Engineer) to protect module ownership boundaries.
-   - Gemini generates clean, executable Python code strictly fulfilling the spec without manual code writing.
+   - The refined markdown spec (along with optional context files) is passed to `agent_runner.py` .
+   - The runner initializes Gemini API with strict role guidance (e.g., Streamlit UI vs. Backend Python Engineer) to protect module ownership boundaries .
+   - Gemini generates clean, executable Python code strictly fulfilling the spec without manual code writing .
 
 5. **Step 5 — Automated Remote Commit & Local Validation**:
-   - Generated code is saved locally and committed directly to GitHub main branch via `PyGithub` integration.
-   - Local VS Code workspace receives synced updates to validate functionality via `streamlit run src/app.py`.
-   - Smart commits (`PET-X #devcomplete`) trigger GitHub Actions (`.github/workflows/jira-transitions.yml`) using `atlassian/gajira-transition@v3` to advance story statuses automatically across the Jira workflow.
+   - Generated code is saved locally and committed directly to GitHub main branch via `PyGithub` integration .
+   - Local VS Code workspace receives synced updates to validate functionality via `streamlit run src/app.py` 
+   - Smart commits (`PET-X #devcomplete`) trigger GitHub Actions (`.github/workflows/jira-transitions.yml`) using `atlassian/gajira-transition@v3` to advance story statuses automatically across the Jira workflow 
 
 ### 1.3 Environment & Core Tech Stack
-- **Language**: Python 3.x
-- **UI & Presentation**: Streamlit (`src/app.py`), `streamlit-option-menu`
-- **Data Visualization**: `plotly` (`plotly.express`, `plotly.graph_objects`), `st.plotly_chart`
-- **PDF Extraction & Processing**: `pdfplumber`, `pandas`, `re`
-- **Database Engine**: SQLite 3 (`db/personal-expense-tracker.db`)
-- **API & System Integrations**: Google GenAI SDK (`google-genai`), `requests`, `python-dotenv`
+- **Language**: Python 3.x 
+- **UI & Presentation**: Streamlit (`src/app.py`), `streamlit-option-menu` 
+- **Data Visualization**: `plotly` (`plotly.express`, `plotly.graph_objects`), `st.plotly_chart` 
+- **PDF Extraction & Processing**: `pdfplumber`, `pandas`, `re` 
+- **Database Engine**: SQLite 3 (`db/personal-expense-tracker.db`) 
+- **API & System Integrations**: Google GenAI SDK (`google-genai`), `PyGithub`, `requests`, `python-dotenv` 
 
 ---
 
-### 1.4 Future Evolution of the AI Delivery Engine
-*Note: The current SDD delivery engine (jira_agent_runner.py and agent_runner.py) represents Phase 1 of the delivery model. As the project matures, this architecture document will be updated to reflect Phase 2 capabilities, including automated spec refinement, automated test-driven output validation, and programmatic acceptance testing execution prior to git commits.*
+### 1.4 Evolution of the AI Delivery Engine
+- **Phase 1 (Core SDD Execution — Complete)**: Established `jira_agent_runner.py` and `agent_runner.py` for automated Jira backlog provisioning and spec-driven Python source generation 
+- **Phase 2 (Quality Gates & Self-Hosted Infrastructure — Active)**: Introduced `spec_refiner.py` to enforce Definition of Ready (DoR) standards, Gherkin hardening, and 3-pass iteration caps, backed by self-hosted bootstrap specifications (`bootstrap_*.md`).
+- **Phase 3 (Automated Verification — Planned)**: Future evolution will incorporate automated test-driven output validation (`pytest`) and programmatic acceptance testing execution prior to remote Git commits 
 
 ---
 
 ### 1.5 Environment Variables, Credential Scopes & Rotation Protocol
 
-To execute SDD automation engines locally and within remote CI/CD pipelines, the system relies on the environment variables detailed below.
+To execute SDD automation engines locally and within remote CI/CD pipelines, the system relies on the environment variables detailed below 
 
-> **Security Guardrail**: Pure secret values reside exclusively in local `.env` files (enforced via `.gitignore`) and encrypted GitHub Repository Secrets. Raw API tokens or private keys MUST NEVER be committed to version control.
+> **Security Guardrail**: Pure secret values reside exclusively in local `.env` files (enforced via `.gitignore`) and encrypted GitHub Repository Secrets  Raw API tokens or private keys MUST NEVER be committed to version control 
 
 #### 1.5.1 Required Environment Variables
 
 | Variable Name | Local Scope (`.env`) | Remote Scope (GitHub Secrets) | Consuming Service / Module | Purpose & Function |
 | :--- | :--- | :--- | :--- | :--- |
-| `GEMINI_API_KEY` | Yes | Yes | `agent_runner.py`<br>`jira_agent_runner.py` | Authenticates requests to Google GenAI SDK for spec parsing and Python code generation. |
-| `JIRA_BASE_URL` | Yes | Yes | `jira_agent_runner.py`<br>Gajira GitHub Actions | Base domain URL for your Atlassian Jira Cloud instance (e.g., `https://your-domain.atlassian.net`). |
-| `JIRA_USER_EMAIL` | Yes | Yes | `jira_agent_runner.py`<br>Gajira GitHub Actions | User email address linked to the Atlassian REST API account. |
-| `JIRA_API_TOKEN` | Yes | Yes | `jira_agent_runner.py`<br>Gajira GitHub Actions | Atlassian API token used for automated issue creation (REST v3) and git commit transition hooks. |
-| `GITHUB_TOKEN` | Yes | Managed by GitHub | `agent_runner.py` | Personal Access Token (PAT) / default secret used by `PyGithub` to push generated code commits to `main`. |
+| `GEMINI_API_KEY` | Yes  | Yes  | `agent_runner.py`<br>`jira_agent_runner.py`<br>`spec_refiner.py` | Authenticates requests to Google GenAI SDK for spec refinement, spec parsing, and Python code generation  |
+| `JIRA_BASE_URL` | Yes  | Yes  | `jira_agent_runner.py`<br>Gajira GitHub Actions  | Base domain URL for your Atlassian Jira Cloud instance (e.g., `https://your-domain.atlassian.net`)  |
+| `JIRA_USER_EMAIL` | Yes  | Yes  | `jira_agent_runner.py`<br>Gajira GitHub Actions  | User email address linked to the Atlassian REST API account  |
+| `JIRA_API_TOKEN` | Yes  | Yes  | `jira_agent_runner.py`<br>Gajira GitHub Actions  | Atlassian API token used for automated issue creation (REST v3) and git commit transition hooks  |
+| `GITHUB_PAT` / `GITHUB_TOKEN` | Yes  | Managed by GitHub  | `agent_runner.py`  | Personal Access Token (PAT) used by `PyGithub` to push generated code commits to `main` . |
+| `GITHUB_REPO` | Yes | Managed by GitHub | `agent_runner.py` | Target GitHub repository slug (`owner/repo`) for automated remote commits. |
 
 #### 1.5.2 Credential Expiry & Token Rotation Protocol
 
-When rotating expiring credentials, update both local and remote stores simultaneously to prevent execution breaks in `agent_runner.py`, `jira_agent_runner.py`, or GitHub Actions workflows:
+When rotating expiring credentials, update both local and remote stores simultaneously to prevent execution breaks in `agent_runner.py`, `jira_agent_runner.py`, `spec_refiner.py`, or GitHub Actions workflows:
 
-1. **`JIRA_API_TOKEN` Rotation**:
-   - **Generation**: Navigate to **Atlassian Account Settings** > **Security** > **API tokens** and generate a new token.
-   - **Local Update**: Update `JIRA_API_TOKEN="<new_token>"` in `.env`.
-   - **Remote Update**: Navigate to **GitHub Repository** > **Settings** > **Secrets and variables** > **Actions** and update the `JIRA_API_TOKEN` repository secret.
+1. **`JIRA_API_TOKEN` Rotation** :
+   - **Generation**: Navigate to **Atlassian Account Settings** > **Security** > **API tokens** and generate a new token 
+   - **Local Update**: Update `JIRA_API_TOKEN="<new_token>"` in `.env` 
+   - **Remote Update**: Navigate to **GitHub Repository** > **Settings** > **Secrets and variables** > **Actions** and update the `JIRA_API_TOKEN` repository secret 
 
-2. **`GEMINI_API_KEY` Rotation**:
-   - **Generation**: Navigate to **Google AI Studio** > **Get API key** and create a new API key.
-   - **Local Update**: Update `GEMINI_API_KEY="<new_key>"` in `.env`.
-   - **Remote Update**: Update the `GEMINI_API_KEY` secret under **GitHub Repository** > **Settings** > **Secrets and variables** > **Actions** (if CI/CD code generation steps are enabled).
+2. **`GEMINI_API_KEY` Rotation** :
+   - **Generation**: Navigate to **Google AI Studio** > **Get API key** and create a new API key 
+   - **Local Update**: Update `GEMINI_API_KEY="<new_key>"` in `.env` 
+   - **Remote Update**: Update the `GEMINI_API_KEY` secret under **GitHub Repository** > **Settings** > **Secrets and variables** > **Actions** (if CI/CD code generation steps are enabled) 
 
-3. **`GITHUB_TOKEN` (Personal Access Token) Rotation**:
-   - **Generation**: Navigate to **GitHub Profile Settings** > **Developer Settings** > **Personal access tokens (Fine-grained or Tokens classic)**, generate a new token with `repo` write scopes, and copy the string.
-   - **Local Update**: Update `GITHUB_TOKEN="<new_pat>"` in `.env` to ensure `PyGithub` inside `agent_runner.py` can continue pushing code commits.
-   - **Remote Update**: GitHub Actions automatically injects `secrets.GITHUB_TOKEN` for workflow runs; if using a custom Personal Access Token for cross-repository operations, update `GH_PAT` under Repository Secrets.
+3. **`GITHUB_PAT` / `GITHUB_TOKEN` Rotation** :
+   - **Generation**: Navigate to **GitHub Profile Settings** > **Developer Settings** > **Personal access tokens (Fine-grained or Tokens classic)**, generate a new token with `repo` write scopes, and copy the string 
+   - **Local Update**: Update `GITHUB_PAT="<new_pat>"` in `.env` to ensure `PyGithub` inside `agent_runner.py` can continue pushing code commits .
+   - **Remote Update**: GitHub Actions automatically injects `secrets.GITHUB_TOKEN` for workflow runs; if using a custom Personal Access Token for cross-repository operations, update `GH_PAT` under Repository Secrets 
 
 ---
 
 ## 2. Directory Structure & File Taxonomy
 
+```text
 expense-parser-agent/
-├── README.md                   # Repository landing page and high-level overview
-├── agent_runner.py             # Spec-driven LLM code generation engine (Gemini API)
-├── jira_agent_runner.py        # Automated Jira issue and epic generator
-├── debug_run.py                # Local execution test script for PDF parsing
+├── README.md                                   # Repository landing page and high-level overview
+├── agent_runner.py                             # Spec-driven LLM code generation engine (Gemini API)
+├── jira_agent_runner.py                        # Automated Jira issue and epic generator
+├── spec_refiner.py                             # Automated DoR quality gate & Gherkin spec refiner
+├── debug_run.py                                # Local execution test script for PDF parsing
 ├── .github/
 │   └── workflows/
-│       └── jira-transitions.yml # GitHub Actions workflow for Jira state transitions
+│       └── jira-transitions.yml                # GitHub Actions workflow for Jira state transitions
 ├── db/
-│   └── personal-expense-tracker.db  # Production SQLite database file
-├── data/                       # Raw input PDF statements, exports, and test artifacts
+│   └── personal-expense-tracker.db             # Production SQLite database file
+├── data/                                       # Raw input PDF statements, exports, and test artifacts
 ├── docs/
-│   ├── ARCHITECTURE.md         # Master System Architecture Document (This file)
-│   └── specs/                  # Feature and module specifications
-│       ├── database_repository_spec.md
-│       ├── pdf_parser_spec.md
-│       ├── ui_ingestion_spec.md
-│       └── ui_categorisation_spec.md
-└── src/                        # Core application Python source code
-├── app.py                  # Streamlit presentation layer & UI components
-├── pdf_parser.py           # Statement parsing & PDF text extraction engine
-└── repository.py           # Centralized SQLite repository layer (DatabaseRepository)
+│   ├── ARCHITECTURE.md                         # Master System Architecture Document (This file)
+│   └── specs/                                  # Version-controlled specifications
+│       ├── bootstrap_agent_runner_spec.md      # Infrastructure spec: Code generation runner
+│       ├── bootstrap_jira_agent_runner_spec.md # Infrastructure spec: Jira backlog runner
+│       ├── bootstrap_spec_refiner_spec.md      # Infrastructure spec: Spec refiner quality gate
+│       ├── database_repository_spec.md         # Domain spec: SQLite repository layer
+│       ├── pdf_parser_spec.md                  # Domain spec: PDF statement ingestion engine
+│       ├── ui_ingestion_spec.md                # Domain spec: Statement upload UI
+│       ├── ui_categorisation_spec.md           # Domain spec: Merchant & transaction categorisation UI
+│       └── budget_projection_spec.md           # Domain spec: HK Card Budget Projection Engine
+└── src/                                        # Core application Python source code
+    ├── app.py                                  # Streamlit presentation layer & UI components
+    ├── pdf_parser.py                           # Statement parsing & PDF text extraction engine
+    └── repository.py                           # Centralized SQLite repository layer (DatabaseRepository)
+```
 
 ### Module Boundary & Ownership Contracts
 
@@ -158,7 +170,11 @@ expense-parser-agent/
    - Exclusively owns Streamlit layout rendering, sticky CSS header injection, sidebar navigation, form input validation, and modal confirmation dialogs (`@st.dialog`).
    - Executes data reads and updates strictly through `DatabaseRepository` instance methods.
 
-   ---
+4. **SDD Orchestration Engines (`agent_runner.py`, `jira_agent_runner.py`, `spec_refiner.py`)**:
+   - Governed by `docs/specs/bootstrap_*.md` specifications.
+   - Must not modify production SQLite database files (`db/personal-expense-tracker.db`) directly.
+
+---
 
 ## 3. Database Schema & Entity Contracts (`db/personal-expense-tracker.db`)
 
@@ -228,11 +244,14 @@ Upon database initialization, `DatabaseRepository.init_db()` executes `INSERT OR
 3. **ISO Reference Data**: Seeds 45 ISO countries (e.g., `AT`, `AU`, `HK`, `US`, `VN`) into `"country"` and maps their 45 corresponding currencies (e.g., `EUR`, `AUD`, `HKD`, `USD`, `VND`) into `"currency"`.
 
 ---
+
 ## 4. Categorisation & Fallback Hierarchy Rules
 
 The PET categorisation engine operates on a strict single source of truth model designed to balance global automation with single-transaction flexibility.
 
 ### 4.1 Single Source of Truth Hierarchy
+
+```text
                       ┌────────────────────────┐
                       │ Ingested PDF Statement │
                       └───────────┬────────────┘
@@ -272,6 +291,7 @@ The PET categorisation engine operates on a strict single source of truth model 
 │ Inherits default     │                           │ Single Transaction     │
 │ merchant.category_id │                           │ Manual Override Active │
 └──────────────────────┘                           └────────────────────────┘
+```
 
 ### 4.2 Categorisation Lifecycle Rules
 
@@ -359,7 +379,7 @@ The presentation layer is encapsulated inside the `PersonalExpenseTracker` class
 ### 6.1 Sticky Header CSS Injection & Navigation
 - **Sidebar Alignment**: Hides native Streamlit sidebar headers (`[data-testid="stSidebarHeader"]`) and sets top padding to `0rem` for flush top alignment.
 - **Solid Sticky Top Header**: Targets `[data-testid="stHeader"]` with `#0e1117` background color and `z-index: 999`. Injects a persistent page title (`.sticky-page-title`) matching the active navigation choice.
-- **Sidebar Navigation Framework**: Powered by `streamlit_option_menu.option_menu` with white text and active dark highlight (`#31333F`). Current menu options: `["Dashboard", "Upload", "Categorise", "Charts"]`.
+- **Sidebar Navigation Framework**: Powered by `streamlit_option_menu.option_menu` with white text and active dark highlight (`#31333F`). Current menu options: `["Dashboard", "Upload", "Categorise", "Charts"]` (expanding to include `"Budget Projection"` per `budget_projection_spec.md`).
   - *Architecture Evolution Note*: The sidebar navigation options, icon mappings, and styling configurations are subject to future refinement as new analytical views and administrative controls are added.
   
 ---
@@ -392,8 +412,11 @@ To prevent Streamlit session state locks and fragment rendering errors, all moda
     - *Column 1*: Plotly Donut Chart (`hole=0.55`) displaying total AUD spend formatted as `$XX,XXX.XX` centered in the cutout, with sub-metric caption *"Transactions in currencies other than AUD"* for native foreign spend.
     - *Column 2*: Filter Control Card featuring Date Range Presets (defaulting to `"This Month"`), Custom Date Picker, Category Multi-Select, and Configurable Outlier Threshold input (defaulting to `$1,000`).
   - **Row 2 (Full Width)**: Category Budget Statistics DataFrame rendering `Category`, `Total Spend (AUD)`, `Monthly Average (AUD)`, `% of Total`, `Txn Count`, and `Max Single Txn (AUD)` with outlier indicators.
+- **Budget Projection Page Layout** *(Governed by `docs/specs/budget_projection_spec.md`)*:
+  - Controls for historical lookback window (`Trailing 3 Months`, `Trailing 6 Months`, `Trailing 12 Months`) and session AUD outlier threshold slider (`$0.00` to `$100,000.00`).
+  - Interactive multi-currency target allocation table (`AUD`, `HKD`, `USD`) rendered via `st.dataframe` with `st.column_config.NumberColumn`, live summary totals, and native CSV download.
 
----
+  ---
 
 ## 7. CI/CD & Jira Automation Workflow (`.github/workflows/jira-transitions.yml`)
 
