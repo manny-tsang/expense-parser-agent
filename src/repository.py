@@ -1,11 +1,12 @@
 import os
+import re
 import sqlite3
 from typing import Any, Dict, List, Optional, Union
 import pandas as pd
 
 
 class DatabaseRepository:
-    """Centralized database repository for SQLite schema management, reference data seeding, and CRUD database operations."""
+    """Centralized database repository for SQLite schema management, reference data seeding, baseline aggregation, and CRUD database operations."""
 
     def __init__(self, db_path: str = "db/personal-expense-tracker.db") -> None:
         """Initializes target DB path and ensures parent directories exist."""
@@ -703,3 +704,176 @@ class DatabaseRepository:
         finally:
             if own_conn and active_conn:
                 active_conn.close()
+
+    def get_budget_projections(
+        self,
+        lookback_window: Union[int, str] = 3,
+        outlier_threshold_aud: float = 1000.0,
+        target_overrides: Optional[Dict[str, Dict[str, float]]] = None,
+    ) -> Dict[str, Any]:
+        """Computes rolling budget baselines, historical averages, and default targets per category and currency.
+
+        Args:
+            lookback_window: Lookback timeframe count (3, 6, 12 or 'Trailing 3 Months').
+            outlier_threshold_aud: Transient AUD threshold slider value (0.0 disables suppression).
+            target_overrides: Optional mapping of category row labels to target field overrides.
+
+        Returns:
+            Dict containing:
+                - 'df': Summary DataFrame adhering to strict 7-column schema.
+                - 'n_months': Distinct month count denominator.
+                - 'badge_message': UI status badge string.
+                - 'notice_message': Explicit AUD outlier notice string.
+        """
+        if isinstance(lookback_window, str):
+            match = re.search(r"\d+", lookback_window)
+            months_count = int(match.group(0)) if match else 3
+        else:
+            months_count = int(lookback_window) if lookback_window else 3
+
+        columns = [
+            "Category",
+            "Historical Monthly Avg (AUD)",
+            "Historical Monthly Avg (HKD)",
+            "Historical Monthly Avg (USD)",
+            "Target Monthly Budget (AUD)",
+            "Target Monthly Budget (HKD)",
+            "Target Monthly Budget (USD)",
+        ]
+
+        df_txns = self.get_transactions_dataframe()
+        if df_txns.empty:
+            empty_df = pd.DataFrame(columns=columns)
+            for c in columns[1:]:
+                empty_df[c] = empty_df[c].astype("float64")
+            return {
+                "df": empty_df,
+                "n_months": 1,
+                "badge_message": "ℹ️ No historical transactions found in selected window",
+                "notice_message": "Transactions performed in AUD above the set threshold are excluded from projection calculations.",
+            }
+
+        df_txns["trans_date"] = pd.to_datetime(df_txns["trans_date"], errors="coerce")
+        df_valid = df_txns.dropna(subset=["trans_date"]).copy()
+
+        if df_valid.empty:
+            empty_df = pd.DataFrame(columns=columns)
+            for c in columns[1:]:
+                empty_df[c] = empty_df[c].astype("float64")
+            return {
+                "df": empty_df,
+                "n_months": 1,
+                "badge_message": "ℹ️ No historical transactions found in selected window",
+                "notice_message": "Transactions performed in AUD above the set threshold are excluded from projection calculations.",
+            }
+
+        # Determine cutoff date for lookback window relative to dataset max date
+        max_date = df_valid["trans_date"].max()
+        start_date = (max_date.to_period("M") - (months_count - 1)).to_timestamp()
+        df_window = df_valid[df_valid["trans_date"] >= start_date].copy()
+
+        # Global distinct month calculation prior to outlier suppression
+        distinct_months = (
+            df_window["trans_date"].dt.to_period("M").nunique()
+            if not df_window.empty
+            else 0
+        )
+
+        if distinct_months == 0:
+            n_months = 1
+            badge_message = "ℹ️ No historical transactions found in selected window"
+        else:
+            n_months = distinct_months
+            if n_months < months_count:
+                badge_message = f"⚠️ Partial history: Calculation based on {n_months} distinct month(s)"
+            else:
+                badge_message = ""
+
+        # Outlier suppression applies ONLY to AUD transactions
+        df_filtered = df_window.copy()
+        if outlier_threshold_aud > 0.0 and not df_filtered.empty:
+            is_aud = df_filtered["purchase_currency"].astype(str).str.upper() == "AUD"
+            is_outlier = is_aud & (df_filtered["txn_amount"].abs() >= outlier_threshold_aud)
+            df_filtered = df_filtered[~is_outlier]
+
+        rows = []
+        if not df_filtered.empty:
+            grouped = df_filtered.groupby(
+                ["category_name", "purchase_currency"], dropna=False
+            )
+            for (cat_name, curr_code), group in grouped:
+                cat_str = str(cat_name) if pd.notna(cat_name) else "Uncategorised"
+                curr_str = str(curr_code).upper() if pd.notna(curr_code) else "AUD"
+                row_label = f"{cat_str} ({curr_str})"
+
+                total_amt = float(group["txn_amount"].sum())
+                avg_amt = round(total_amt / n_months, 2)
+
+                hist_aud = avg_amt if curr_str == "AUD" else 0.00
+                hist_hkd = avg_amt if curr_str == "HKD" else 0.00
+                hist_usd = avg_amt if curr_str == "USD" else 0.00
+
+                target_aud = max(0.00, hist_aud) if curr_str == "AUD" else 0.00
+                target_hkd = max(0.00, hist_hkd) if curr_str == "HKD" else 0.00
+                target_usd = max(0.00, hist_usd) if curr_str == "USD" else 0.00
+
+                if target_overrides and row_label in target_overrides:
+                    overrides = target_overrides[row_label]
+                    if "Target Monthly Budget (AUD)" in overrides:
+                        target_aud = float(overrides["Target Monthly Budget (AUD)"])
+                    if "Target Monthly Budget (HKD)" in overrides:
+                        target_hkd = float(overrides["Target Monthly Budget (HKD)"])
+                    if "Target Monthly Budget (USD)" in overrides:
+                        target_usd = float(overrides["Target Monthly Budget (USD)"])
+
+                rows.append(
+                    {
+                        "Category": row_label,
+                        "Historical Monthly Avg (AUD)": float(hist_aud),
+                        "Historical Monthly Avg (HKD)": float(hist_hkd),
+                        "Historical Monthly Avg (USD)": float(hist_usd),
+                        "Target Monthly Budget (AUD)": float(target_aud),
+                        "Target Monthly Budget (HKD)": float(target_hkd),
+                        "Target Monthly Budget (USD)": float(target_usd),
+                    }
+                )
+
+        summary_df = pd.DataFrame(rows, columns=columns)
+        if summary_df.empty:
+            summary_df = pd.DataFrame(columns=columns)
+
+        for col in columns[1:]:
+            summary_df[col] = summary_df[col].astype("float64").round(2)
+
+        summary_df = summary_df.sort_values(by="Category").reset_index(drop=True)
+
+        return {
+            "df": summary_df,
+            "n_months": n_months,
+            "badge_message": badge_message,
+            "notice_message": "Transactions performed in AUD above the set threshold are excluded from projection calculations.",
+        }
+
+    @staticmethod
+    def add_total_summary_row(df: pd.DataFrame) -> pd.DataFrame:
+        """Appends a read-only summary row labeled 'Total' calculating column sums across all active category rows."""
+        if df.empty:
+            total_data = {
+                "Category": ["Total"],
+                "Historical Monthly Avg (AUD)": [0.00],
+                "Historical Monthly Avg (HKD)": [0.00],
+                "Historical Monthly Avg (USD)": [0.00],
+                "Target Monthly Budget (AUD)": [0.00],
+                "Target Monthly Budget (HKD)": [0.00],
+                "Target Monthly Budget (USD)": [0.00],
+            }
+            return pd.DataFrame(total_data)
+
+        df_clean = df[df["Category"] != "Total"].copy()
+
+        num_cols = [col for col in df_clean.columns if col != "Category"]
+        total_row = {"Category": "Total"}
+        for col in num_cols:
+            total_row[col] = round(float(df_clean[col].sum()), 2)
+
+        return pd.concat([df_clean, pd.DataFrame([total_row])], ignore_index=True)
