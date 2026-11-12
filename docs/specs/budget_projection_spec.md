@@ -39,10 +39,14 @@
    - Upon initial render or window change, `Target Monthly Budget (Currency)` fields for AUD, HKD, and USD default to their respective computed `Historical Monthly Avg (Currency)` values.
    - Where a category has transactions performed in more than one currency, then this category should have multiple lines. For example, if "Groceries" has transactions in AUD, HKD and USD, then "Groceries" will have 3 rows. Each row will be labelled as `<category> (Currency)` (e.g. `<Groceries> (AUD)`) showing `Target Monthly Budget (Currency)` and `Historical Monthly Avg (Currency)` for the respective currency, and the other columns for the other currencies are set to `0.00`.
    - Inversely, to be perfectly clear, if transactions for a specific category are all in a single currency, then there should only be one row for that category and the totals for columns that are not of that currency, should be set to `0.00`.
-2. **Multi-Currency UI Adjustments**:
-   - The UI renders independent numeric edit fields for AUD, HKD, and USD targets per category in `src/app.py`.
-   - Inputs must be non-negative real numbers. If a user enters a negative value or invalid text, the UI displays an inline validation error (`"Target budget must be >= 0.00"`) and reverts the target to `0.00`.
+2. **Inline Table Target Adjustments (`st.data_editor`)**:
+   - Eliminate any separate "Overrides" section or `st.expander` widget; all target budget edits MUST occur directly inline within the **Budget Projection Summary** table (`st.data_editor`).
+   - Columns 1–4 (`Category` and `Historical Monthly Avg (AUD/HKD/USD)`) MUST be configured as read-only (`disabled=True`).
+   - Columns 5–7 (`Target Monthly Budget (AUD)`, `Target Monthly Budget (HKD)`, `Target Monthly Budget (USD)`) MUST be editable inline via `st.column_config.NumberColumn(format="$%.2f", min_value=0.0, step=10.0)`.
+   - The `Total` summary row MUST be dynamically calculated from the edited category rows in real time and rendered immediately below (or as a locked read-only bottom row excluded from inline editing) so both the `Total` row and top KPI cards update instantaneously upon any cell edit.
+   - Inputs must be non-negative real numbers. If a user enters a negative value or invalid text, the UI displays an inline validation error (`"Target budget must be >= 0.00"`) and reverts the target cell to `0.00`.
    - Explicit input of `0.00` is valid and indicates an intentional phase-out for that category target.
+   - Automatically reset all `Target Monthly Budget` values to match the newly computed `Historical Monthly Avg` baselines whenever the Lookback Window or Outlier Threshold slider is modified, displaying an inline session notification informing the user that targets were re-initialized.
 3. **Summary Aggregation**:
    - The system calculates independent live totals for Total Projected Monthly Spend (AUD), Total Projected Monthly Spend (HKD), and Total Projected Monthly Spend (USD).
 
@@ -61,11 +65,12 @@
 - Maintain the exact `Category` label as displayed on the UI when exporting to CSV.
 - Include the `Total` row when exporting the table to CSV.
 
-#### 3.3.2 Streamlit Rendering & Export Options
-1. **Component**: Rendered via `st.dataframe`.
-2. **Numeric Types**: Underlying pandas DataFrame columns maintain native `float64` numeric types to 2 decimal places to ensure raw CSV exports contain unformatted floats.
-3. **Visual Column Configuration**: UI rendering uses `st.column_config.NumberColumn` configured with `format="$%.2f"`.
-4. **Built-in Features**: Enables Streamlit native CSV download, column sorting, and text searching out of the box.
+### 3.3.2 Streamlit Rendering & Export Options
+1. **Component**: Rendered via `st.data_editor` (with `hide_index=True`, `num_rows="fixed"`), disabling editing on `Category` and all `Historical Monthly Avg` columns while enabling inline numeric cell editing on `Target Monthly Budget (AUD)`, `Target Monthly Budget (HKD)`, and `Target Monthly Budget (USD)`.
+2. **Real-Time Total & KPI Sync**: Any inline edit in `st.data_editor` immediately recalculates the read-only `Total` summary row and updates the three top KPI summary cards (`Total Projected Monthly Spend (AUD/HKD/USD)`) without requiring a separate "Apply" button or expander section.
+3. **Numeric Types**: Underlying pandas DataFrame columns maintain native `float64` numeric types to 2 decimal places to ensure raw CSV exports contain unformatted floats.
+4. **Visual Column Configuration**: UI rendering uses `st.column_config.NumberColumn` configured with `format="$%.2f"` (and `min_value=0.0` enforced on Target columns).
+5. **Export Interoperability**: Utilizes native Streamlit CSV download (`st.download_button`) exporting the live edited category rows plus the updated `Total` row with exact column headers.
 
 ## 4. User Stories & BDD Acceptance Criteria
 
@@ -82,11 +87,11 @@
 
 ### Story 2: Interactive Target Adjustments
 **AS A** personal expense tracker user,  
-**I WANT TO** override historical averages with custom budget targets,  
-**SO THAT** I can plan my upcoming monthly salary allocation.
+**I WANT TO** edit target budget cells directly inline within the Budget Projection Summary table,  
+**SO THAT** I can plan my upcoming monthly salary allocation and see totals update in real time without a separate overrides section.
 
 #### Acceptance Criteria (Gherkin):
-**Scenario 1: User overrides category budget**
-- **GIVEN** calculated baseline averages for a selected expense category
-- **WHEN** the user changes the target budget input
-- **THEN** recalculate total projected monthly AUD and HKD budget sums
+**Scenario 1: User edits category target inline in Budget Projection Summary**
+- **GIVEN** calculated baseline averages rendered in the Budget Projection Summary table (`st.data_editor`) with no separate "Overrides" expander
+- **WHEN** the user edits a Target Monthly Budget cell directly inline within the summary table
+- **THEN** validate that the input is non-negative ($\ge 0.00$) and recalculate the read-only `Total` row and top KPI summary cards in real time
