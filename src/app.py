@@ -1477,7 +1477,7 @@ class PersonalExpenseTracker:
         st.info("Transactions performed in AUD above the set threshold are excluded from projection calculations.")
 
         if show_reset_notice:
-            st.info("Target budgets re-initialized to historical baselines.")
+            st.info("Target budgets re-initialized based on updated historical baselines.")
 
         # Compute Baseline Projections
         proj_data = self.repo.get_budget_projections(
@@ -1493,45 +1493,43 @@ class PersonalExpenseTracker:
                 st.info(badge_msg)
 
         base_df = proj_data["df"]
-        summary_df = DatabaseRepository.add_total_summary_row(base_df)
 
-        invalid_input_detected = False
         target_cols = [
             "Target Monthly Budget (AUD)",
             "Target Monthly Budget (HKD)",
             "Target Monthly Budget (USD)",
         ]
 
+        edited_df = base_df.copy()
+        invalid_input_detected = False
+
         if editor_key in st.session_state:
             editor_state = st.session_state[editor_key]
             if isinstance(editor_state, dict) and "edited_rows" in editor_state:
                 edited_rows = editor_state["edited_rows"]
                 for row_idx, changes in edited_rows.items():
-                    if row_idx < len(summary_df) and summary_df.at[row_idx, "Category"] != "Total":
-                        for col_name, val in changes.items():
-                            if col_name in target_cols:
-                                try:
-                                    float_val = float(val)
-                                    if float_val < 0.0:
+                    try:
+                        r_idx = int(row_idx)
+                        if r_idx < len(edited_df):
+                            for col_name, val in changes.items():
+                                if col_name in target_cols:
+                                    try:
+                                        float_val = float(val)
+                                        if math.isnan(float_val) or float_val < 0.0:
+                                            invalid_input_detected = True
+                                            float_val = 0.0
+                                        edited_df.at[r_idx, col_name] = float_val
+                                    except (ValueError, TypeError):
                                         invalid_input_detected = True
-                                        float_val = 0.0
-                                    summary_df.at[row_idx, col_name] = float_val
-                                except (ValueError, TypeError):
-                                    invalid_input_detected = True
-                                    summary_df.at[row_idx, col_name] = 0.0
-
-                category_df = summary_df[summary_df["Category"] != "Total"]
-                total_idx = summary_df[summary_df["Category"] == "Total"].index
-                if not total_idx.empty:
-                    t_idx = total_idx[0]
-                    num_cols = [c for c in summary_df.columns if c != "Category"]
-                    for c in num_cols:
-                        summary_df.at[t_idx, c] = round(float(category_df[c].sum()), 2)
+                                        edited_df.at[r_idx, col_name] = 0.0
+                    except (ValueError, TypeError):
+                        pass
 
         if invalid_input_detected:
             st.error("Target budget must be >= 0.00")
 
-        total_row = summary_df[summary_df["Category"] == "Total"].iloc[0]
+        full_summary_df = DatabaseRepository.add_total_summary_row(edited_df)
+        total_row = full_summary_df[full_summary_df["Category"] == "Total"].iloc[0]
 
         st.write("")
 
@@ -1604,7 +1602,7 @@ class PersonalExpenseTracker:
             ]
 
             st.data_editor(
-                summary_df,
+                base_df,
                 column_config=column_config,
                 disabled=disabled_cols,
                 hide_index=True,
@@ -1613,10 +1611,18 @@ class PersonalExpenseTracker:
                 key=editor_key,
             )
 
-            csv_bytes = summary_df.to_csv(index=False).encode("utf-8")
+            total_df = full_summary_df[full_summary_df["Category"] == "Total"]
+            st.dataframe(
+                total_df,
+                column_config=column_config,
+                hide_index=True,
+                use_container_width=True,
+            )
+
+            csv_bytes = full_summary_df.to_csv(index=False).encode("utf-8")
 
             st.download_button(
-                label="Download Budget Summary CSV",
+                label="Download Projection CSV",
                 data=csv_bytes,
                 file_name="budget_projection_summary.csv",
                 mime="text/csv",
